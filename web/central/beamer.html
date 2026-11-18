@@ -1,0 +1,21 @@
+{{define "beamer"}}{{template "chead" .Title}}
+<body class="beamer">
+<main>
+<header class="brand"><span class="logo" aria-hidden="true">◆</span> {{.Title}}</header>
+<div class="beamer-grid">
+  <section class="card">
+    {{template "board" .Board}}
+  </section>
+  <section class="card">
+    <h2>Just solved</h2>
+    <ul class="solves" id="recent">
+      {{range .Board.Recent}}<li><span class="stars">{{stars .Difficulty}}</span> <strong>{{.Name}}</strong> <span class="muted">{{.Challenge}}</span> <time>{{hm .SolvedAt}}</time></li>
+      {{else}}<li class="muted">Nothing yet.</li>{{end}}
+    </ul>
+  </section>
+</div>
+</main>
+<script src="{{path "/static/leaderboard.js"}}" defer></script>
+</body>
+</html>
+{{end}}

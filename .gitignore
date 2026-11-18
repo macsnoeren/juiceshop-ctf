@@ -1,0 +1,15 @@
+# Build output and local runs
+/bin/
+/dist/
+*.db
+*.db-shm
+*.db-wal
+state.json*
+
+# Fuzz corpus written by `go test -fuzz` on a failure: commit it on purpose
+# (it is a regression test), never by accident.
+internal/*/testdata/fuzz/
+
+# Real secrets never live in this repository. The files under docker/env/ are
+# SAMPLE values for the test setup and are committed on purpose.
+*.local.env

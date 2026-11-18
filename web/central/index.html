@@ -1,0 +1,14 @@
+{{define "index"}}{{template "chead" .Title}}
+<body>
+<main>
+{{template "nav" .Title}}
+<section class="card">
+  <h1>Leaderboard</h1>
+  <p class="muted">OWASP Juice Shop. Points per challenge go by its difficulty; equal points are ranked by who got there first.</p>
+  {{template "board" .Board}}
+</section>
+</main>
+<script src="{{path "/static/leaderboard.js"}}" defer></script>
+</body>
+</html>
+{{end}}

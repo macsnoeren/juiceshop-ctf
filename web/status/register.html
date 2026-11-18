@@ -1,0 +1,20 @@
+{{define "register"}}{{template "head" "Sign up"}}
+<section class="card">
+  <h1>Sign up for this Juice Shop</h1>
+  <p>This OWASP Juice Shop is yours for the CTF. Every challenge you solve in it appears on the
+     leaderboard under the name you choose here.</p>
+  {{template "error" .}}
+  <form method="post" action="{{path "/register"}}">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label for="name">Your name</label>
+    <input id="name" name="name" value="{{.Name}}" required minlength="2" maxlength="40" autocomplete="name">
+    <p class="hint">Shown on a public leaderboard. Letters, digits, spaces and <code>. - ' _</code>.
+       You cannot change it later; ask your teacher if you need to.</p>
+    <label for="code">Access code</label>
+    <input id="code" name="code" type="password" required autocomplete="off">
+    <p class="hint">From your teacher, together with the address of this instance.</p>
+    <button type="submit">Sign up and open the shop</button>
+  </form>
+</section>
+{{if .LeaderboardURL}}<p class="center"><a href="{{.LeaderboardURL}}">View the leaderboard</a></p>{{end}}
+{{template "foot"}}{{end}}

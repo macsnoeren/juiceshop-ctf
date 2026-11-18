@@ -1,0 +1,40 @@
+{{define "participant"}}{{template "chead" .Title}}
+<body>
+<main>
+{{template "nav" .Title}}
+{{with .D}}
+<section class="card">
+  <p class="eyebrow">Rank {{.Row.Rank}}</p>
+  <h1>{{.Row.Name}}</h1>
+  <div class="stats">
+    <div><span class="num">{{.Row.Score}}</span><span class="label">points</span></div>
+    <div><span class="num">{{.Row.Solved}}<small>/{{.Row.Total}}</small></span><span class="label">challenges</span></div>
+    <div><span class="num">{{clock .Row.LastSolve}}</span><span class="label">last solve</span></div>
+  </div>
+</section>
+<section class="card">
+  <h2>By category</h2>
+  <table class="cats">
+    {{range .Categories}}
+    <tr><th scope="row">{{.Name}}</th><td><progress value="{{.Solved}}" max="{{.Total}}">{{.Solved}}/{{.Total}}</progress></td><td class="n">{{.Solved}}/{{.Total}}</td></tr>
+    {{end}}
+  </table>
+</section>
+<section class="card">
+  <h2>Solved</h2>
+  {{if .Solves}}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Challenge</th><th class="hide-narrow">Category</th><th>Difficulty</th><th class="n">Points</th><th class="n">Time</th></tr></thead>
+    <tbody>
+    {{range .Solves}}<tr><td>{{.Challenge}}</td><td class="hide-narrow">{{.Category}}</td><td class="stars">{{stars .Difficulty}}</td><td class="n">{{.Points}}</td><td class="n">{{hm .SolvedAt}}</td></tr>{{end}}
+    </tbody>
+  </table>
+  </div>
+  {{else}}<p class="muted">Nothing solved yet.</p>{{end}}
+</section>
+{{end}}
+</main>
+</body>
+</html>
+{{end}}

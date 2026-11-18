@@ -1,0 +1,40 @@
+{{define "chead"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.}}</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="{{path "/static/style.css"}}">
+</head>
+{{end}}
+
+{{define "nav"}}
+<header class="brand"><span class="logo" aria-hidden="true">◆</span> {{.}}
+  <nav><a href="{{path "/"}}">Leaderboard</a><a href="{{path "/beamer"}}">Beamer</a></nav>
+</header>
+{{end}}
+
+{{define "boardrows"}}
+{{range .Rows}}
+<tr{{if eq .Rank 1}} class="top1"{{end}}>
+  <td class="rank">{{.Rank}}</td>
+  <td><span class="dot{{if .Online}} on{{end}}" title="{{if .Online}}online{{else}}offline{{end}}"></span><a href="{{path "/p/"}}{{.ParticipantID}}">{{.Name}}</a></td>
+  <td class="n">{{.Score}}</td>
+  <td class="n">{{.Solved}}/{{.Total}}</td>
+  <td class="n hide-narrow">{{clock .LastSolve}}</td>
+</tr>
+{{else}}
+<tr><td colspan="5" class="empty">No participants yet. As soon as a student signs up on their instance, they appear here.</td></tr>
+{{end}}
+{{end}}
+
+{{define "board"}}
+<div class="table-wrap">
+<table id="board" class="board" data-api="{{path "/api/v1/leaderboard"}}" data-base="{{path ""}}">
+  <thead><tr><th>#</th><th>Name</th><th class="n">Points</th><th class="n">Solved</th><th class="n hide-narrow">Last solve</th></tr></thead>
+  <tbody>{{template "boardrows" .}}</tbody>
+</table>
+</div>
+<p class="updated" id="updated">Updates every 10 seconds</p>
+{{end}}

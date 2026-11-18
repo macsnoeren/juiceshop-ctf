@@ -1,0 +1,21 @@
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.}} · Juice Shop CTF</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="{{path "/static/style.css"}}">
+</head>
+<body>
+<main class="narrow">
+<header class="brand"><span class="logo" aria-hidden="true">◆</span> Juice Shop CTF</header>
+{{end}}
+
+{{define "foot"}}
+</main>
+</body>
+</html>
+{{end}}
+
+{{define "error"}}{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}{{end}}

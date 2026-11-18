@@ -1,0 +1,99 @@
+{{define "admin"}}{{template "chead" (print "Admin · " .Title)}}
+<body>
+<main>
+{{template "nav" .Title}}
+<h1>Admin</h1>
+
+{{with .Flash}}
+  {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+  {{if .Message}}<p class="alert" role="status">{{.Message}}</p>{{end}}
+  {{if .Token}}
+  <section class="card">
+    <h2>Token for {{.TokenInstance}}: shown only now</h2>
+    <p>Put these lines in the instance's <code>agent.env</code>. The token cannot be shown again; if it is lost, create a new one.</p>
+    <pre><code>CTF_INSTANCE_ID={{.TokenInstance}}
+CTF_CENTRAL_URL={{$.CentralURL}}
+CTF_CENTRAL_TOKEN={{.Token}}</code></pre>
+  </section>
+  {{end}}
+{{end}}
+
+<section class="card">
+  <h2>Instances</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Instance</th><th>Participant</th><th>Last report</th><th class="hide-narrow">Versions</th><th></th></tr></thead>
+    <tbody>
+    {{range .Instances}}
+    <tr>
+      <td><span class="dot{{if online .}} on{{end}}"></span><strong>{{.ID}}</strong>{{if .Label}}<br><span class="muted">{{.Label}}</span>{{end}}</td>
+      <td>{{if .Participant}}{{.Participant}}{{else}}<span class="muted">waiting for sign-up</span>{{end}}</td>
+      <td>{{datetime .LastReportAt}}
+        {{if and .LastReportAt (not .Reachable)}}<span class="badge warn">Juice Shop down</span>{{end}}
+        {{if .RestoreFailed}}<span class="badge warn">restore failed</span>{{end}}</td>
+      <td class="hide-narrow muted">{{if .AgentVersion}}agent {{.AgentVersion}}<br>shop {{.JuiceShopVersion}}{{end}}</td>
+      <td><form class="inline" method="post" action="{{path "/admin/instances/"}}{{.ID}}/rotate">
+            <input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="small secondary" type="submit">New token</button></form></td>
+    </tr>
+    {{else}}<tr><td colspan="5" class="empty">No instances yet.</td></tr>{{end}}
+    </tbody>
+  </table>
+  </div>
+  <form method="post" action="{{path "/admin/instances"}}">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label for="id">New instance id</label>
+    <input id="id" name="id" required maxlength="63" placeholder="cybersecurity-2">
+    <p class="hint">Lower-case letters, digits and dashes. The same value goes in <code>CTF_INSTANCE_ID</code>.</p>
+    <label for="label">Label (optional)</label>
+    <input id="label" name="label" maxlength="100" placeholder="VPS 2, room 1.12">
+    <button type="submit">Create and show token</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Participants</h2>
+  <p class="hint"><strong>Reset</strong> takes a participant off the board and tells their instance to forget the
+     registration, so the next student can sign up. Restart that Juice Shop as well to give the next student a clean shop;
+     what the previous student solved never counts for the next one.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>#</th><th>Name</th><th>Instance</th><th class="n">Points</th><th class="n">Solved</th><th class="n" title="Juice Shop's own estimate: high means solved implausibly fast">Cheat avg / max</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {{range .Participants}}
+    <tr>
+      <td class="rank">{{if .Rank}}{{.Rank}}{{end}}</td>
+      <td>{{.Name}}</td>
+      <td>{{.Instance}}</td>
+      <td class="n">{{.Score}}</td>
+      <td class="n">{{.Solved}}/{{.Total}}</td>
+      <td class="n">{{pct .AvgCheat}} / {{pct .MaxCheat}}</td>
+      <td>{{if .EndedAt}}<span class="badge">ended {{datetime .EndedAt}}</span>{{else if .Hidden}}<span class="badge">hidden</span>{{else}}<span class="badge">on the board</span>{{end}}</td>
+      <td>{{if not .EndedAt}}
+        <form class="inline" method="post" action="{{path "/admin/participants/"}}{{.ParticipantID}}/{{if .Hidden}}show{{else}}hide{{end}}">
+          <input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="small secondary" type="submit">{{if .Hidden}}Show{{else}}Hide{{end}}</button></form>
+        <form class="inline" method="post" action="{{path "/admin/participants/"}}{{.ParticipantID}}/reset">
+          <input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="small secondary" type="submit">Reset</button></form>
+      {{end}}</td>
+    </tr>
+    {{else}}<tr><td colspan="8" class="empty">Nobody has signed up yet.</td></tr>{{end}}
+    </tbody>
+  </table>
+  </div>
+  <p><a class="button secondary" href="{{path "/admin/export.csv"}}">Export CSV</a></p>
+</section>
+
+<section class="card">
+  <h2>Scoring</h2>
+  <form method="post" action="{{path "/admin/scoring"}}">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <table class="cats scoring">
+      {{range .Scoring}}<tr><th scope="row"><span class="stars">{{stars .Difficulty}}</span></th>
+        <td><input name="points{{.Difficulty}}" value="{{.Points}}" inputmode="numeric" aria-label="points for {{.Difficulty}} stars"></td></tr>{{end}}
+    </table>
+    <button type="submit">Save points</button>
+  </form>
+</section>
+</main>
+</body>
+</html>
+{{end}}
