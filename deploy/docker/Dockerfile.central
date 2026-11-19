@@ -11,8 +11,15 @@
 # line for the non-root user, nothing else. There is no shell to exec into and
 # nothing to patch but the binary itself. The HEALTHCHECK therefore runs the
 # binary's own -healthcheck flag (internal/health), not curl.
+#
+# MULTI-PLATFORM without emulation: the Go stage runs on the BUILD machine's
+# platform and cross-compiles for the target (GOOS/GOARCH from buildx's
+# TARGETOS/TARGETARCH), which works because the SQLite driver is pure Go
+# (modernc.org/sqlite, no cgo). The release workflow
+# (.github/workflows/release.yml) builds linux/amd64 and linux/arm64 this
+# way; a plain `docker build` builds for the machine it runs on.
 
-FROM golang:1.26.10-alpine3.24 AS build
+FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine3.24 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -20,7 +27,12 @@ COPY cmd ./cmd
 COPY internal ./internal
 COPY web ./web
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath \
+# No defaults: buildx fills these in, and a default here would WIN over its
+# value (an "arm64" image with an amd64 binary in it). Empty — a builder
+# without BuildKit — means Go builds for the machine it runs on.
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
       -ldflags "-s -w -X github.com/macsnoeren/juiceshop-ctf/internal/shared/version.Version=${VERSION}" \
       -o /out/ctf-central ./cmd/ctf-central \
  && mkdir -p /out/rootfs/etc \

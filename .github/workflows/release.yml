@@ -1,0 +1,263 @@
+# release: one version of Juice Shop CTF, everywhere at once.
+#
+#   git tag v1.1.0 && git push origin v1.1.0         (or: Actions → release → Run, version v1.1.0)
+#
+#   prepare   check the version and CHANGELOG.md (scripts/release-notes.sh),
+#             make the tag (manual run only) and a DRAFT GitHub release
+#   test      unit tests, the image test and the end-to-end test, at the tag
+#   docker    macsnoeren/juiceshop-ctf-central:  1.1.0, 1.1, latest   (amd64 + arm64)
+#   vm        the students' VM (deploy/vm/build.sh, Packer + QEMU with KVM):
+#             juiceshop-ctf-v1.1.0-virtualbox.ova, -vmware.zip and .sha256 on the release
+#   publish   the draft release made public — only when docker AND vm succeeded
+#
+# ONE VERSION STRING, from the tag: the binaries print it (VERSION build arg →
+# internal/shared/version), the VM carries it in its file names and on its
+# console, admin shows it per VM, and Docker Hub gets it without the "v".
+# A pre-release (v1.2.0-rc.1) is marked so on GitHub, and Docker Hub gets
+# only its full version, never "latest" or "1.2".
+#
+# Why a tag and not every push to main (as guacamole-datadiode does): a
+# release here is a VM of a gigabyte that thirty students import; it should
+# be a decision, with a CHANGELOG entry, not a side effect of a merge.
+#
+# Needs two repository secrets (Settings → Secrets and variables → Actions),
+# the same names as guacamole-datadiode's: DH_USERNAME and DH_PASSWORD (a
+# Docker Hub access token with read/write). A failed run leaves the release
+# a draft: fix, delete the draft and the tag, and tag again.
+name: release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. v1.1.0 — tagged on the branch chosen above'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  NAMESPACE: macsnoeren
+  CENTRAL_IMAGE: juiceshop-ctf-central
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the version and write the release notes
+        id: version
+        env:
+          TAG: ${{ inputs.version || github.ref_name }}
+        run: |
+          set -euo pipefail
+          bash scripts/release-notes.sh "$TAG" > notes.md
+          prerelease=false
+          [[ "$TAG" == *-* ]] && prerelease=true
+          docker_version="${TAG#v}"
+          cat >> notes.md <<EOF
+
+          ## Downloads
+
+          | File | For |
+          |------|-----|
+          | \`juiceshop-ctf-${TAG}-virtualbox.ova\` | VirtualBox: *File → Import Appliance…* |
+          | \`juiceshop-ctf-${TAG}-vmware.zip\` | VMware Workstation, Player, Fusion: unzip, open the \`.vmx\` |
+          | \`juiceshop-ctf-${TAG}.sha256\` | checksums of both |
+
+          The students' sheet: [deploy/vm/STUDENT.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/deploy/vm/STUDENT.md).
+
+          The central server:
+
+          \`\`\`sh
+          docker pull ${NAMESPACE}/${CENTRAL_IMAGE}:${docker_version}
+          \`\`\`
+          EOF
+          {
+            echo "tag=$TAG"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Tag the chosen branch (manual run)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::$TAG exists already; a version is released once"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Juice Shop CTF $TAG"
+          # Pushed with GITHUB_TOKEN, so it does not start this workflow a
+          # second time; this run carries on with the tag.
+          git push origin "$TAG"
+
+      - name: Make the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --json isDraft --jq .isDraft >/dev/null 2>&1; then
+            if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != true ]; then
+              echo "::error::release $TAG is published already; it is never overwritten"
+              exit 1
+            fi
+            gh release edit "$TAG" --notes-file notes.md   # a re-run of a failed release
+          else
+            args=(--draft --verify-tag --title "Juice Shop CTF $TAG" --notes-file notes.md)
+            [ "$PRERELEASE" = true ] && args+=(--prerelease)
+            gh release create "$TAG" "${args[@]}"
+          fi
+
+  test:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Unit tests (gofmt, vet, -race)
+        run: bash scripts/test.sh
+      - name: The image on its own
+        run: bash tests/image.sh
+      - name: End to end
+        run: bash tests/e2e.sh
+
+  docker:
+    needs: [prepare, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DH_USERNAME }}
+          password: ${{ secrets.DH_PASSWORD }}
+
+      - name: Tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.NAMESPACE }}/${{ env.CENTRAL_IMAGE }}
+          # 1.1.0 and 1.1, and latest — the last two only for a release, not
+          # for a pre-release (metadata-action leaves them out for v1.2.0-rc.1).
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.prepare.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.prepare.outputs.tag }}
+          flavor: |
+            latest=${{ needs.prepare.outputs.prerelease == 'false' }}
+
+      - name: Build and push the central server
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile.central
+          # Cross-compiled in the Go stage, no emulation (see the Dockerfile).
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ needs.prepare.outputs.tag }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: The version in the pushed image
+        env:
+          IMAGE: ${{ env.NAMESPACE }}/${{ env.CENTRAL_IMAGE }}:${{ steps.meta.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          got="$(docker run --rm "$IMAGE" -version)"
+          echo "$got"
+          [ "$got" = "ctf-central $TAG" ] || { echo "::error::the image says '$got', not 'ctf-central $TAG'"; exit 1; }
+
+      - name: Docker Hub description
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DH_USERNAME }}
+          password: ${{ secrets.DH_PASSWORD }}
+          repository: ${{ env.NAMESPACE }}/${{ env.CENTRAL_IMAGE }}
+          short-description: 'Central server of Juice Shop CTF: games, live leaderboards and admin for a class.'
+          readme-filepath: deploy/docker/DOCKERHUB.md
+
+  vm:
+    needs: [prepare, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      # GitHub's Linux runners have KVM, but /dev/kvm is not open to the
+      # runner's user until this rule says so. Without it build.sh falls back
+      # to emulation and takes over an hour.
+      - name: Open /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - name: Build and test the VM
+        env:
+          VERSION: ${{ needs.prepare.outputs.tag }}
+        run: bash deploy/vm/build.sh
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cd dist/vm
+          sha256sum -c "juiceshop-ctf-$TAG.sha256"
+          gh release upload "$TAG" --clobber \
+            "juiceshop-ctf-$TAG-virtualbox.ova" \
+            "juiceshop-ctf-$TAG-vmware.zip" \
+            "juiceshop-ctf-$TAG.sha256"
+
+  publish:
+    needs: [prepare, docker, vm]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          args=(--draft=false)
+          [ "$PRERELEASE" = false ] && args+=(--latest)
+          gh release edit "$TAG" "${args[@]}"
+          gh release view "$TAG" --json url --jq .url

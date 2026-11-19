@@ -5,25 +5,33 @@ You get two virtual machines: **Kali Linux**, where you attack from, and the
 Juice Shop, and every challenge you solve in it counts for you on the
 leaderboard.
 
-**1. Import the CTF VM.** In VirtualBox: *File → Import Appliance…* →
-`juiceshop-ctf.ova` → *Import*. You now have it next to your Kali.
+**1. Import the CTF VM**, in the program your Kali runs in:
 
-**2. Check the network adapters** (*Settings → Network*) of the CTF VM:
+- **VirtualBox**: *File → Import Appliance…* → `juiceshop-ctf-<version>-virtualbox.ova` → *Import*.
+- **VMware** (Workstation, Player, Fusion): unzip `juiceshop-ctf-<version>-vmware.zip`,
+  *File → Open…* → `juiceshop-ctf.vmx`. When VMware asks whether you moved or
+  copied it: **I Copied It**.
 
-| Adapter | Attached to | |
-|---------|-------------|-|
-| 1 | **NAT** | so the VM can reach the leaderboard |
-| 2 | **Host-only Adapter** — the same one Kali uses | so Kali can reach the VM |
+You now have it next to your Kali.
+
+**2. Check the network adapters** of the CTF VM (VirtualBox: *Settings →
+Network*; VMware: *Settings → Network Adapter*):
+
+| Adapter | VirtualBox | VMware | |
+|---------|------------|--------|-|
+| 1 | **NAT** | **NAT** | so the VM can reach the leaderboard |
+| 2 | **Host-only Adapter** — the same one Kali uses | **Host-only** (VMnet1) — the same one Kali uses | so Kali can reach the VM |
 
 Kali needs an adapter on that same **host-only** network. Do **not** use
 *Bridged*: that puts your Juice Shop on the classroom network, where anyone can
 solve challenges for you, or break your shop. There is nothing to configure
-inside either VM.
+inside either VM, and the CTF VM has no login: everything is in your
+browser.
 
 **3. Start the CTF VM**, then Kali. The CTF VM needs about a minute.
 
 **4. Find the CTF VM — that is your first task.** It is on Kali's host-only
-network and got its address from VirtualBox. `ip a` shows Kali's own
+network and got its address from VirtualBox or VMware. `ip a` shows Kali's own
 address on that network; `nmap` or `netdiscover` finds the other machine on
 it. Port 80 is the one that answers.
 

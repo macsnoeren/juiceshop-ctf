@@ -4,6 +4,8 @@
 #   make e2e      the whole CTF in Docker, end to end (tests/e2e.sh, a few minutes)
 #   make images   build the images, versioned from git
 #   make run      start the test setup (deploy/compose/start.sh); stop with make stop
+#   make vm       the students' VM for VirtualBox and VMware, in Docker (deploy/vm/build.sh)
+#   make release-check V=v1.1.0   may this version be released? (prints its release notes)
 #
 # VERSION comes from `git describe`, as in jmnl-external-servers, so an image
 # built from a commit after the tag v1.0.0 calls itself v1.0.0-<n>-g<hash>
@@ -14,7 +16,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 export VERSION
 
-.PHONY: test e2e images run stop version
+.PHONY: test e2e images run stop vm release-check version
 
 test:
 	bash scripts/test.sh
@@ -31,6 +33,13 @@ run:
 
 stop:
 	deploy/compose/stop.sh
+
+vm:
+	deploy/vm/build.sh
+
+# The check .github/workflows/release.yml starts with: run it before tagging.
+release-check:
+	@bash scripts/release-notes.sh "$(V)"
 
 version:
 	@echo $(VERSION)

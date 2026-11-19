@@ -6,3 +6,5 @@ tests
 *.md
 *.db
 *.db-*
+.github
+dist
