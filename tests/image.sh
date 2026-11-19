@@ -80,10 +80,16 @@ docker run --rm "$IMG" -version | grep -q '^ctf-node v' || fail "-version"
 ok "$(docker run --rm "$IMG" -version)"
 
 step "size"
-python3 - "$IMG" <<'EOF' || fail "the image is too large"
+# Against the base image, named by the Dockerfile's last FROM so the tag is
+# kept in one place. Pulled explicitly: a build leaves the base behind as a
+# tagged image with the classic image store, NOT with the containerd image
+# store of GitHub's runners, and `docker image inspect` then fails on it.
+BASE="$(awk '/^FROM /{b=$2} END{print b}' deploy/docker/Dockerfile.node)"
+docker image inspect "$BASE" >/dev/null 2>&1 || docker pull -q "$BASE" >/dev/null || fail "cannot pull $BASE"
+python3 - "$IMG" "$BASE" <<'EOF' || fail "the image is too large"
 import subprocess, sys
-a, b = [int(subprocess.check_output(["docker", "image", "inspect", "-f", "{{.Size}}", i]).decode()) for i in (sys.argv[1], "bkimminich/juice-shop:v20.3.0")]
-print("   Juice Shop + %.2f MB" % ((a - b) / 1e6))
+a, b = [int(subprocess.check_output(["docker", "image", "inspect", "-f", "{{.Size}}", i]).decode()) for i in sys.argv[1:3]]
+print("   %s + %.2f MB" % (sys.argv[2], (a - b) / 1e6))
 sys.exit(0 if a - b < 20e6 else 1)
 EOF
 
