@@ -797,7 +797,7 @@ Tests:
 
 ## 13. Into `jmnl-external-servers`
 
-> **1.1:** neo runs ctf-central without `CTF_SEED`; `cybersecurity-1` is the VM image with `juiceshop-ctf` and `logging-proxy` (decision D9, deploy/virtualbox/README.md).
+> **1.1:** neo runs ctf-central without `CTF_SEED`; `cybersecurity-1` is the VM image with `juiceshop-ctf` and `logging-proxy` (decision D9, deploy/vm/README.md).
 
 The usual checklist from that repository's `CLAUDE.md`, applied to both sides:
 

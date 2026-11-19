@@ -7,10 +7,11 @@ check passes, not when the code is written.
 
 ## Status
 
-All tasks are done except **T1.1-60**, the VirtualBox image: it needs
-VirtualBox and the installed node, and is the operator's
-([deploy/virtualbox/README.md](../deploy/virtualbox/README.md) is the
-procedure). Where the result differs from the wording of a task:
+All tasks are done. **T1.1-60**, the VM image, was done differently from
+its wording: the VM is no longer a Flatcar node installed and exported by
+hand, but built by `make vm` (Packer and QEMU in Docker) as a VirtualBox OVA
+and a VMware `.vmx` ([deploy/vm/README.md](../deploy/vm/README.md)); the
+import into VirtualBox and VMware themselves stays the operator's check. Where the result differs from the wording of a task:
 
 - **T1.1-04** was settled with the real ctf-node instead of a throwaway
   spike, and changed the design: a process that drops to 10001 but keeps
@@ -413,7 +414,7 @@ All pages server-rendered, small script, no external assets; CSP unchanged.
   `DESIGN.md` updated where 1.1 changed it, README and CHANGELOG.
   **Done when** a colleague can run a lab from OPERATIONS.md alone.
 
-- [x] **T1.1-57 Student sheet.** `deploy/virtualbox/`: importing the VM next
+- [x] **T1.1-57 Student sheet.** `deploy/vm/`: importing the VM next
   to Kali, the two adapters (NAT and host-only, nothing to configure), and
   that finding the CTF VM is their first task.
   **Done when** it fits on one page.
@@ -436,7 +437,8 @@ uploaded without the operator's explicit go.
   **Done when** the node test (`nodes/cybersecurity-1/tests/e2e.sh`), adapted
   to 1.1, passes.
 
-- [ ] **T1.1-60 The VM image.** Install the node in VirtualBox from the build,
+- [x] **T1.1-60 The VM image.** *(Built by `make vm` instead: never joined, so
+  no Forget before export; `deploy/vm/test.sh` boots both exported disks.)* Install the node in VirtualBox from the build,
   join a test game, *Forget*, export the OVA, import it twice.
   **Done when** the two imported VMs join as two participants and neither has
   a trace of the test join.

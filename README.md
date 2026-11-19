@@ -1,5 +1,8 @@
 # Juice Shop CTF
 
+[Releases](https://github.com/macsnoeren/juiceshop-ctf/releases): the students' VM for VirtualBox and VMware ·
+[Docker Hub](https://hub.docker.com/r/macsnoeren/juiceshop-ctf-central): the central server
+
 A capture-the-flag on [OWASP Juice Shop](https://owasp.org/www-project-juice-shop/)
 for a class: every student attacks a Juice Shop of their own, in a VM next to
 their Kali, and the central leaderboard shows, live and by name, who has
@@ -20,11 +23,12 @@ that participant. The VM image is the same for everybody and holds no secret.
 | | |
 |---|---|
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | running a lab: games, the board, cleaning up, the VM |
-| [deploy/virtualbox/STUDENT.md](deploy/virtualbox/STUDENT.md) | the students' sheet |
+| [deploy/vm/STUDENT.md](deploy/vm/STUDENT.md) | the students' sheet |
 | [docs/VERSION-1-1.md](docs/VERSION-1-1.md) | what the first lab showed and why 1.1 is built this way |
 | [docs/PROTOCOL.md](docs/PROTOCOL.md) | join, report and leave between VM and central server |
 | [docs/DESIGN.md](docs/DESIGN.md) | the design of 1.0, still the reasoning where 1.1 does not say otherwise |
 | [docs/TASK-1-1.md](docs/TASK-1-1.md) | how 1.1 was built, step by step |
+| [DEVELOPER.md](DEVELOPER.md) | for developers: how the code fits together, where things are, how to make and test a change |
 | [CHANGELOG.md](CHANGELOG.md) | |
 
 ## Try it
@@ -36,7 +40,8 @@ make run      # the central server and three students' VMs, each with its "Kali"
 make stop     # deploy/compose/stop.sh --wipe forgets everything
 ```
 
-Then make a game at `http://127.0.0.1:8090/juiceshop-ctf/admin/`, join it
+Then open `http://127.0.0.1:8090/juiceshop-ctf/admin/`: the first time it
+asks you to make an admin account. Make a game there, join it
 from `http://127.0.0.1:8091/ctf/`, solve
 `http://127.0.0.1:8091/juiceshop/ftp/acquisitions.md` and watch the board.
 
@@ -57,7 +62,7 @@ internal/central  the central server: API, admin, boards; store/ (SQLite)
 internal/shared   protocol (v2), names, httpx, config, health, version
 internal/juiceshop  the client, the embedded challenge catalogue, fixtures of the pinned version
 web/              templates per program, the stylesheet and scripts
-deploy/           docker/ (the two Dockerfiles), compose/ (the test setup), virtualbox/ (the lab VM)
+deploy/           docker/ (the two Dockerfiles), compose/ (the test setup), vm/ (the students' VM: Packer in Docker)
 docs/             the documents above
 tests/            e2e.sh (everything, ~5 min), image.sh (the image on its own, ~2 min)
 ```
@@ -72,11 +77,16 @@ bash tests/image.sh     # the image: users, isolation inside the container, resp
 
 ## On a server
 
-`jmnl-external-servers` deploys this as signed Flatcar bundles: the central
-server on `neo-jmnl-node` at `https://neo.jmnl.nl/juiceshop-ctf/` (with
-`/admin/` behind an IP allow-list and a password: it has no login of its
-own), and the CTF VM as the node `cybersecurity-1`, made once and exported
-for VirtualBox ([deploy/virtualbox/README.md](deploy/virtualbox/README.md)).
+`jmnl-external-servers` deploys the central server as signed Flatcar
+bundles, on `neo-jmnl-node` at `https://neo.jmnl.nl/juiceshop-ctf/` (with
+`/admin/` behind an IP allow-list as well as its own login).
+
+The students' VM is built here, for VirtualBox and VMware, with nothing but
+Docker ([deploy/vm/README.md](deploy/vm/README.md)):
+
+```sh
+make vm       # dist/vm/juiceshop-ctf-<version>-virtualbox.ova and -vmware.zip
+```
 
 The image runs anywhere Docker does:
 

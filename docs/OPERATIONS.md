@@ -2,15 +2,40 @@
 
 For the person who runs a Juice Shop CTF with a class. You need: the central
 server (on neo: `https://neo.jmnl.nl/juiceshop-ctf/`, admin at
-`…/juiceshop-ctf/admin/`, behind an IP allow-list and a password), and the
-CTF VM image (`juiceshop-ctf.ova`). How the image is made is in
-[deploy/virtualbox/README.md](../deploy/virtualbox/README.md); the students'
-sheet is [deploy/virtualbox/STUDENT.md](../deploy/virtualbox/STUDENT.md).
+`…/juiceshop-ctf/admin/`, behind an IP allow-list and its own login), and the
+CTF VM (`juiceshop-ctf-<version>-virtualbox.ova`, or `-vmware.zip` for
+VMware), built with `make vm`. How it is made is in
+[deploy/vm/README.md](../deploy/vm/README.md); the students'
+sheet is [deploy/vm/STUDENT.md](../deploy/vm/STUDENT.md).
 
 ```
- each student's laptop (VirtualBox)                                neo
+ each student's laptop (VirtualBox/VMware)                              neo
  Kali ── host-only ──► CTF VM (Juice Shop + ctf-node) ── NAT ──►  central server: games, boards, admin
 ```
+
+## 0. Admin accounts
+
+Admin has accounts of its own. All of them can do everything, including
+managing the others.
+
+- **The very first time** admin is opened on a new central server, it shows
+  the **setup page**: make the first account there (a username and a
+  password of at least 10 characters). Until that is done, whoever opens
+  admin first becomes its owner. On neo the IP allow-list keeps that to you;
+  anywhere else, open admin yourself right after the server starts.
+- **Logging in**: *Keep me logged in* (on by default) keeps this browser
+  logged in for 30 days after its last use. Without it, the login ends with
+  the browser, or after 12 hours of not using it.
+- **Users** (in the bar): add a colleague with a first password and tell it
+  to them in person; they change it under *Your account*. *New password…*
+  sets a password for someone who lost theirs, and logs them out
+  everywhere. *Delete…* (type their username) removes an account. You
+  cannot delete your own.
+- **A lost laptop**: *Log out everywhere else* under *Your account*, or
+  have a colleague set you a new password.
+- After 10 wrong passwords for one username, or 20 from one address, logins
+  pause for 15 minutes. Every login, failed login and account change is in
+  **Events** as kind `auth`, and every admin action names who did it.
 
 ## 1. Before the lesson
 
@@ -88,18 +113,17 @@ Before deleting, *Export CSV* on the game page keeps the results.
 
 - **One image for the whole class.** It holds no identity and no secret: a
   VM gets one when its student joins.
-- **Export only after *Forget*.** A VM you joined a game with while testing
-  carries that membership; every copy would report as you (the central server
-  flags it as `two_boots`). The export procedure in
-  [deploy/virtualbox/README.md](../deploy/virtualbox/README.md) ends with
-  *Forget*.
+- **Hand out the built files, never a VM you used.** `make vm` builds a VM
+  that has never joined anything. A VM you joined a game with while testing
+  carries that membership; every copy of it would report as you (the central
+  server flags it as `two_boots`). Test on an imported copy, and throw it away.
 - **Another central server.** The image points at neo. A VM can be pointed
   elsewhere on its own CTF page (*Central server*, before joining) — or set
   to none, and then the student plays on the VM alone with a local score.
 - **No central server at all** works too: the page shows the score by the
   scoring table, nothing is reported.
 - **A new version** is a new image to import: there is no path from neo into
-  thirty VirtualBoxes. The game page shows each VM's version, and a 1.0 VM
+  thirty VirtualBoxes (`make vm` again). The game page shows each VM's version, and a 1.0 VM
   that still reports shows up in the feed as `legacy`.
 
 ## 5. Trying it without a class

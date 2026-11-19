@@ -535,6 +535,12 @@ Still guarded by nginx (allow list + password) as on neo today. With
 destructive game actions, a login of its own becomes worth having — decision
 D4.
 
+> **Done after all, in 1.1** (`internal/central/auth.go`): admin accounts in
+> the database, the first one made on a setup page while there is none, a
+> users page to add and remove the others, and "keep me logged in" for 30
+> days. No TOTP. nginx's allow-list stays in front on neo, and is what keeps
+> the setup page to the operator on a fresh server.
+
 ---
 
 ## 6. The leaderboard (F8)
@@ -625,13 +631,13 @@ deployment repository already does.
 | D1 | Drop the gate in the student's lab | **Yes**, with the lab network of §4.2; `CTF_GATE=session` as an option |
 | D2 | Merge agent and status into `ctf-node` | **Yes** (§4.1) |
 | D3 | What "remove participant" does on the VM | The same as the student's *Forget* (§4.4) |
-| D4 | Admin login of its own | nginx only in 1.1; own login with TOTP in 1.2 |
+| D4 | Admin login of its own | accounts of its own in 1.1 after all (§5.7), nginx's allow-list kept in front; TOTP not planned |
 | D5 | Flags: act automatically or only show | **Only show** (§5.5); the operator decides |
 | D6 | Can a VM switch games | Yes, after *Forget*; one game at a time |
 | D7 | Juice Shop and the agent in one container | **Yes** (§3.1), with the two-user split inside it |
 | D8 | The lab network | **Decided:** NAT + host-only, both from VirtualBox's DHCP, nothing configured; the student finds the address (§4.2) |
 | D10 | First blood: points or a mark | **Decided:** a mark only, by time of receipt (§6) |
-| D9 | What else runs on a student VM | `juiceshop-ctf` and `logging-proxy`. web-nginx, the update intake, the log dashboard and timesync are for servers the operator reaches; on thirty VMs in thirty VirtualBoxes nobody reaches them. Keep the Flatcar build, so the VM is made the same way as every other node |
+| D9 | What else runs on a student VM | `juiceshop-ctf` only, on Alpine Linux with Docker and chrony. *Revised in 1.1:* the VM is no longer a Flatcar node of jmnl-external-servers but built by the project itself (`make vm`, deploy/vm/README.md): one command, nothing to install but Docker, for VirtualBox and VMware alike; and nobody reaches thirty VMs' logs anyway |
 
 ---
 

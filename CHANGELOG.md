@@ -41,6 +41,31 @@ The answer to the first student lab (F1–F11 in VERSION-1-1.md §1).
 - *Restart Juice Shop* and *Forget* on the student's page; the operator's
   *remove* does what *Forget* does.
 
+**Admin accounts and the look of Juice Shop**
+- Admin has its own login: accounts in the database (PBKDF2-SHA256), the
+  first made on a setup page while there is none, a *Users* page to add,
+  reset and delete the others, "keep me logged in" for 30 days, login limits
+  per username and per address, and *log out everywhere else*. Every admin
+  action in the feed names its account; logins are events of kind `auth`.
+- The boards, admin and the student's page look like Juice Shop itself: its
+  default theme's blue-grey bar, dark cards, pill buttons, green accents and
+  blue difficulty stars. Navigation and actions are buttons instead of links.
+
+**The VM, built**
+- `make vm` builds the students' VM with nothing but Docker: Packer 1.9.5
+  (the last open-source release) and QEMU install Alpine Linux, Docker and
+  the `juiceshop-ctf` image, and package the disk as a VirtualBox OVA and a
+  VMware `.vmx`. Two adapters by DHCP (NAT, host-only), no SSH, root locked,
+  never joined. `deploy/vm/test.sh` boots both exported disks on SATA with
+  e1000 adapters and checks the CTF. This replaces the Flatcar node
+  `cybersecurity-1` of jmnl-external-servers.
+
+**Releases**
+- A `vX.Y.Z` tag releases everything at once (GitHub Actions): the tests,
+  the central server on Docker Hub as `macsnoeren/juiceshop-ctf-central`
+  (`X.Y.Z`, `X.Y`, `latest`; amd64 and arm64), and the VM for VirtualBox and
+  VMware on the GitHub release, all carrying the tag as their version.
+
 **The board** (F8)
 - Per game at `/g/<slug>/`: podium, category bars, live ticker with first
   blood (a mark, no points; by time of receipt), score over time, pages per
