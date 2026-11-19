@@ -1,43 +1,45 @@
-// Package central is ctf-central: it receives the agents' reports, keeps the
-// score and serves the leaderboard (DESIGN.md §7, §8).
+// Package central is ctf-central: it admits students into games, receives
+// their VMs' reports, and serves the boards and the operator's admin
+// (docs/VERSION-1-1.md §2, §5, §6).
 //
-// Everything is under BasePath ("" on its own hostname, /leaderboard in the
-// docker/ test setup):
+// Everything is under BasePath ("" on its own hostname, /juiceshop-ctf on
+// neo):
 //
-//	POST <base>/api/v1/report        an agent's report (bearer token)
-//	GET  <base>/api/v1/leaderboard   the board as JSON, polled by the pages
-//	GET  <base>/                     the board
-//	GET  <base>/beamer               the board, large, with the latest solves
-//	GET  <base>/p/<id>               one participant
-//	     <base>/admin/...            the operator pages (see admin.go)
+//	POST <base>/api/v2/join            a student joins: name + join code → token
+//	POST <base>/api/v2/report          a VM's snapshot (Bearer token)
+//	POST <base>/api/v2/leave           the student pressed Forget (Bearer token)
+//	POST <base>/api/v1/report          a 1.0 agent: 410 Gone, and an event
+//	GET  <base>/                       the public games
+//	GET  <base>/g/<slug>/              a game's board (board.go)
+//	     <base>/admin/...              the operator pages (admin.go)
 //	GET  <base>/healthz
 //
-// /admin/ has NO login of its own: nginx guards it (§8.4). Do not publish
-// this server without that in front of it.
+// /admin/ has NO login of its own: nginx guards it (decision D4). Do not
+// publish this server without that in front of it.
 package central
 
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
+	"io"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
 	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
-	protocol "github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol/v1"
-	"github.com/macsnoeren/juiceshop-ctf/web/central"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	centralweb "github.com/macsnoeren/juiceshop-ctf/web/central"
 	"github.com/macsnoeren/juiceshop-ctf/web/static"
 )
 
-// Config is ctf-central's configuration.
+// Config is ctf-central's configuration. Everything else is in the database.
 type Config struct {
 	BasePath string
-	Title    string
-	Location *time.Location
 }
 
 // Server is ctf-central.
@@ -47,42 +49,29 @@ type Server struct {
 	log   *slog.Logger
 	now   func() time.Time
 	pages *template.Template
+	loc   atomic.Pointer[time.Location]
+	title atomic.Pointer[string]
+
+	wrongCodes *window // wrong join codes per client address
+	codeJoins  *window // joins per game
 }
+
+// The join limits (VERSION-1-1.md §5.6). Never per address alone: a school
+// puts a whole room behind one address, and thirty students join in the same
+// minute. A correct code never uses up the wrong-code budget.
+const (
+	WrongCodesPerMinute = 20
+	JoinsPerGamePerMin  = 300
+)
 
 // New returns a server on st.
 func New(cfg Config, st *store.Store, log *slog.Logger) (*Server, error) {
-	if cfg.Location == nil {
-		cfg.Location = time.UTC
+	s := &Server{cfg: cfg, st: st, log: log, now: time.Now,
+		wrongCodes: newWindow(time.Minute), codeJoins: newWindow(time.Minute)}
+	if err := s.reloadSettings(); err != nil {
+		return nil, err
 	}
-	if cfg.Title == "" {
-		cfg.Title = "Juice Shop CTF"
-	}
-	s := &Server{cfg: cfg, st: st, log: log, now: time.Now}
-	funcs := template.FuncMap{
-		"path": func(p string) string { return cfg.BasePath + p },
-		"clock": func(t *time.Time) string {
-			if t == nil {
-				return "–"
-			}
-			return t.In(cfg.Location).Format("15:04")
-		},
-		"datetime": func(t *time.Time) string {
-			if t == nil {
-				return "–"
-			}
-			return t.In(cfg.Location).Format("2006-01-02 15:04")
-		},
-		"hm":    func(t time.Time) string { return t.In(cfg.Location).Format("15:04") },
-		"stars": func(n int) string { return strings.Repeat("★", n) },
-		"pct": func(f *float64) string {
-			if f == nil {
-				return "–"
-			}
-			return strconv.Itoa(int(*f*100+0.5)) + "%"
-		},
-		"online": func(in store.Instance) bool { return in.Online(s.now()) },
-	}
-	t, err := template.New("").Funcs(funcs).ParseFS(centralweb.FS, "*.html")
+	t, err := template.New("").Funcs(s.funcs()).ParseFS(centralweb.FS, "*.html", "*.svg")
 	if err != nil {
 		return nil, err
 	}
@@ -90,12 +79,31 @@ func New(cfg Config, st *store.Store, log *slog.Logger) (*Server, error) {
 	return s, nil
 }
 
+// SetClock replaces the clock; for tests.
+func (s *Server) SetClock(now func() time.Time) { s.now = now }
+
+func (s *Server) reloadSettings() error {
+	set, err := s.st.Settings()
+	if err != nil {
+		return err
+	}
+	loc, err := time.LoadLocation(set.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	s.loc.Store(loc)
+	s.title.Store(&set.Title)
+	return nil
+}
+
+func (s *Server) location() *time.Location { return s.loc.Load() }
+func (s *Server) siteTitle() string        { return *s.title.Load() }
+
 // Handler returns all routes.
 func (s *Server) Handler() http.Handler {
 	b := s.cfg.BasePath
 	mux := http.NewServeMux()
-	staticFS := static.FS
-	mux.Handle("GET "+b+"/static/", http.StripPrefix(b+"/static/", http.FileServerFS(staticFS)))
+	mux.Handle("GET "+b+"/static/", http.StripPrefix(b+"/static/", http.FileServerFS(static.FS)))
 	mux.HandleFunc("GET "+b+"/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if s.st.Ping() != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -103,11 +111,11 @@ func (s *Server) Handler() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	mux.HandleFunc("POST "+b+"/api/v1/report", s.handleReport)
-	mux.HandleFunc("GET "+b+"/api/v1/leaderboard", s.handleBoardJSON)
-	mux.HandleFunc("GET "+b+"/{$}", s.handleIndex)
-	mux.HandleFunc("GET "+b+"/beamer", s.handleBeamer)
-	mux.HandleFunc("GET "+b+"/p/{id}", s.handleParticipant)
+	mux.HandleFunc("POST "+b+"/api/v2/join", s.handleJoin)
+	mux.HandleFunc("POST "+b+"/api/v2/report", s.handleReport)
+	mux.HandleFunc("POST "+b+"/api/v2/leave", s.handleLeave)
+	mux.HandleFunc("POST "+b+"/api/v1/report", s.handleLegacy)
+	s.boardRoutes(mux)
 	s.adminRoutes(mux)
 	if b != "" {
 		mux.HandleFunc("GET "+b, func(w http.ResponseWriter, r *http.Request) {
@@ -131,137 +139,186 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 	http.Error(w, "internal error", http.StatusInternalServerError)
 }
 
-// handleReport is §7.2 on the receiving end.
-func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
-	inst, err := s.st.InstanceForToken(httpx.BearerToken(r))
-	if errors.Is(err, store.ErrNotFound) {
-		httpx.WriteJSON(w, http.StatusUnauthorized, protocol.Response{Error: "unknown token"})
+func (s *Server) event(e store.Event) {
+	if e.At.IsZero() {
+		e.At = s.now()
+	}
+	if err := s.st.AddEvent(e); err != nil {
+		s.log.Error("writing an event failed", "err", err)
+	}
+}
+
+func apiError(w http.ResponseWriter, status int, msg string) {
+	httpx.WriteJSON(w, status, protocol.ErrorResponse{Error: msg})
+}
+
+// decode reads a JSON body of at most protocol.MaxBodyBytes. On failure it
+// answers, writes a "rejected" event and returns false.
+func (s *Server) decode(w http.ResponseWriter, r *http.Request, what string, into any) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, protocol.MaxBodyBytes))
+	err := dec.Decode(into)
+	if err == nil {
+		return true
+	}
+	addr := httpx.ClientIP(r)
+	var mbe *http.MaxBytesError
+	if errors.As(err, &mbe) {
+		s.event(store.Event{Kind: store.EvRejected, Address: addr, Text: what + ": body too large"})
+		apiError(w, http.StatusRequestEntityTooLarge, "request too large")
+		return false
+	}
+	s.event(store.Event{Kind: store.EvRejected, Address: addr, Text: what + ": body is not valid JSON"})
+	apiError(w, http.StatusBadRequest, "body is not valid JSON")
+	return false
+}
+
+func (s *Server) boardURL(r *http.Request, slug string) string {
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host + s.cfg.BasePath + "/g/" + slug + "/"
+}
+
+// handleJoin is POST /api/v2/join (VERSION-1-1.md §2.2).
+func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
+	now := s.now()
+	addr := httpx.ClientIP(r)
+	// Before anything else, so a guesser is slowed down whatever they send.
+	if s.wrongCodes.Count(addr, now) >= WrongCodesPerMinute {
+		s.event(store.Event{At: now, Kind: store.EvJoinRefused, Address: addr, Text: "too many wrong join codes from this address (429)"})
+		apiError(w, http.StatusTooManyRequests, "too many wrong join codes; wait a minute")
 		return
 	}
-	if err != nil {
+	var req protocol.JoinRequest
+	if !s.decode(w, r, "join", &req) {
+		return
+	}
+	if err := req.Normalize(); err != nil {
+		s.event(store.Event{At: now, Kind: store.EvJoinRefused, Address: addr, Text: "invalid join: " + err.Error()})
+		apiError(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), protocol.ErrInvalid.Error()+": "))
+		return
+	}
+	codeKey := protocol.Hash(req.Code)
+	if s.codeJoins.Count(codeKey, now) >= JoinsPerGamePerMin {
+		s.event(store.Event{At: now, Kind: store.EvJoinRefused, Address: addr, Text: "join limit of this game reached (429)"})
+		apiError(w, http.StatusTooManyRequests, "too many joins at once; try again in a minute")
+		return
+	}
+	res, g, err := s.st.Join(&req, now)
+	var gid int64
+	if g != nil {
+		gid = g.ID
+	}
+	switch {
+	case errors.Is(err, store.ErrUnknownCode):
+		s.wrongCodes.Add(addr, now)
+		s.event(store.Event{At: now, Kind: store.EvJoinRefused, Address: addr, Text: "unknown join code (403), name " + req.Name})
+		apiError(w, http.StatusForbidden, err.Error())
+		return
+	case errors.Is(err, store.ErrGameDraft), errors.Is(err, store.ErrGameClosed):
+		s.event(store.Event{At: now, Kind: store.EvJoinRefused, GameID: gid, Address: addr, Text: err.Error() + " (409), name " + req.Name})
+		apiError(w, http.StatusConflict, err.Error())
+		return
+	case err != nil:
 		s.fail(w, err)
+		return
+	}
+	s.codeJoins.Add(codeKey, now)
+	p := res.Participant
+	text := fmt.Sprintf("joined as %s; node %s, Juice Shop %s, uid %s", p.Name, req.Node.Version, req.Node.JuiceShop, req.Node.UID[:8])
+	if req.JoinedAt != nil && now.Sub(*req.JoinedAt) > time.Minute {
+		text += fmt.Sprintf("; pressed join %s earlier (offline)", now.Sub(*req.JoinedAt).Round(time.Second))
+	}
+	s.event(store.Event{At: now, Kind: store.EvJoin, GameID: res.Game.ID, ParticipantID: p.ID, Address: addr, Text: text})
+	s.log.Info("participant joined", "game", res.Game.Slug, "participant", p.ID)
+	httpx.WriteJSON(w, http.StatusCreated, protocol.JoinResponse{
+		Participant: p.ID, Token: res.Token, Name: p.Name, Game: res.Game.Protocol(now), Board: s.boardURL(r, res.Game.Slug),
+	})
+}
+
+// token returns the hash of a well-formed bearer token, or answers 401.
+func (s *Server) token(w http.ResponseWriter, r *http.Request, what string) (string, bool) {
+	t := httpx.BearerToken(r)
+	if !protocol.ValidParticipantToken(t) {
+		s.event(store.Event{Kind: store.EvRejected, Address: httpx.ClientIP(r), Text: what + ": no or malformed token (401)"})
+		apiError(w, http.StatusUnauthorized, "a participant token is required")
+		return "", false
+	}
+	return protocol.Hash(t), true
+}
+
+// handleReport is POST /api/v2/report.
+func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
+	hash, ok := s.token(w, r, "report")
+	if !ok {
 		return
 	}
 	var rep protocol.Report
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, protocol.MaxBodyBytes))
-	if err := dec.Decode(&rep); err != nil {
-		var mbe *http.MaxBytesError
-		if errors.As(err, &mbe) {
-			httpx.WriteJSON(w, http.StatusRequestEntityTooLarge, protocol.Response{Error: "report too large"})
-			return
-		}
-		httpx.WriteJSON(w, http.StatusBadRequest, protocol.Response{Error: "report is not valid JSON"})
+	if !s.decode(w, r, "report", &rep) {
 		return
 	}
+	addr := httpx.ClientIP(r)
 	if err := rep.Validate(); err != nil {
-		s.log.Warn("invalid report", "instance", inst, "err", err)
-		httpx.WriteJSON(w, http.StatusBadRequest, protocol.Response{Error: err.Error()})
+		s.event(store.Event{Kind: store.EvRejected, Address: addr, Text: "report: " + err.Error()})
+		apiError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if rep.Instance != inst {
-		s.log.Warn("report for another instance", "token_for", inst, "report_for", rep.Instance)
-		httpx.WriteJSON(w, http.StatusBadRequest, protocol.Response{Error: "instance does not match the token"})
-		return
-	}
-	now := s.now()
-	pid, err := s.st.MergeReport(inst, &rep, now)
+	resp, res, err := s.st.Report(hash, &rep, s.now(), addr)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	resp := protocol.Response{OK: true}
-	if resp.Commands, err = s.st.PendingCommands(inst, now); err != nil {
-		s.fail(w, err)
+	if res.Outcome == store.ReportUnknown {
+		s.event(store.Event{Kind: store.EvRejected, Address: addr, Text: "report: unknown token (401)"})
+		apiError(w, http.StatusUnauthorized, "unknown token: join again")
 		return
 	}
-	if pid != 0 {
-		if resp.Standing, err = s.st.Standing(pid, now); err != nil {
-			s.fail(w, err)
-			return
-		}
-	}
-	s.log.Debug("report", "instance", inst, "participant", pid, "commands", len(resp.Commands))
 	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
-// BoardJSON is GET /api/v1/leaderboard.
-type BoardJSON struct {
-	GeneratedAt time.Time           `json:"generated_at"`
-	Total       int                 `json:"total"`
-	Rows        []store.Row         `json:"rows"`
-	Recent      []store.RecentSolve `json:"recent"`
-}
-
-func (s *Server) board() (*BoardJSON, error) {
-	now := s.now()
-	rows, err := s.st.Leaderboard(now)
-	if err != nil {
-		return nil, err
+// handleLeave is POST /api/v2/leave.
+func (s *Server) handleLeave(w http.ResponseWriter, r *http.Request) {
+	hash, ok := s.token(w, r, "leave")
+	if !ok {
+		return
 	}
-	total, err := s.st.TotalChallenges()
-	if err != nil {
-		return nil, err
+	var req protocol.LeaveRequest
+	if !s.decode(w, r, "leave", &req) {
+		return
 	}
-	recent, err := s.st.Recent(12)
-	if err != nil {
-		return nil, err
+	addr := httpx.ClientIP(r)
+	if err := req.Validate(); err != nil {
+		s.event(store.Event{Kind: store.EvRejected, Address: addr, Text: "leave: " + err.Error()})
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
 	}
-	if rows == nil {
-		rows = []store.Row{}
-	}
-	return &BoardJSON{GeneratedAt: now.UTC(), Total: total, Rows: rows, Recent: recent}, nil
-}
-
-func (s *Server) handleBoardJSON(w http.ResponseWriter, r *http.Request) {
-	b, err := s.board()
+	out, _, err := s.st.Leave(hash, req.Reason, s.now(), addr)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, b)
+	if out == store.LeaveUnknown {
+		s.event(store.Event{Kind: store.EvRejected, Address: addr, Text: "leave: unknown token (401)"})
+		apiError(w, http.StatusUnauthorized, "unknown token")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
-type boardPage struct {
-	Title string
-	Base  string
-	Board *BoardJSON
-}
-
-func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	b, err := s.board()
-	if err != nil {
-		s.fail(w, err)
-		return
+// handleLegacy answers a 1.0 agent: its protocol is gone, and the operator
+// should see which address still runs one (TASK-1-1 T1.1-19).
+func (s *Server) handleLegacy(w http.ResponseWriter, r *http.Request) {
+	var v1 struct {
+		Instance     string `json:"instance"`
+		AgentVersion string `json:"agent_version"`
 	}
-	s.render(w, http.StatusOK, "index", boardPage{Title: s.cfg.Title, Base: s.cfg.BasePath, Board: b})
-}
-
-func (s *Server) handleBeamer(w http.ResponseWriter, r *http.Request) {
-	b, err := s.board()
-	if err != nil {
-		s.fail(w, err)
-		return
+	body, _ := io.ReadAll(io.LimitReader(r.Body, protocol.MaxBodyBytes))
+	json.Unmarshal(body, &v1)
+	text := "a 1.0 agent reported (410)"
+	if v1.Instance != "" && len(v1.Instance) <= 63 {
+		text += fmt.Sprintf(": instance %q, agent %.20s", v1.Instance, v1.AgentVersion)
 	}
-	s.render(w, http.StatusOK, "beamer", boardPage{Title: s.cfg.Title, Base: s.cfg.BasePath, Board: b})
-}
-
-func (s *Server) handleParticipant(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	d, err := s.st.ParticipantDetail(id, s.now())
-	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.render(w, http.StatusOK, "participant", struct {
-		Title string
-		D     *store.Detail
-	}{s.cfg.Title, d})
+	s.event(store.Event{Kind: store.EvLegacy, Address: httpx.ClientIP(r), Text: text})
+	apiError(w, http.StatusGone, "protocol 1 is no longer accepted: this central server runs Juice Shop CTF 1.1; import the 1.1 VM and join a game")
 }

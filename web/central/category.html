@@ -1,0 +1,28 @@
+{{define "category"}}{{template "head" (print .C.Category.Name " · " .Game.Name)}}
+<body>
+<main>
+{{template "nav" .}}
+{{with .C}}
+<section class="card">
+  <p class="eyebrow"><a href="{{$.GBase}}">{{$.Game.Name}}</a></p>
+  <h1><span class="swatch cat-{{.Category.Index}}" aria-hidden="true"></span>{{.Category.Name}}</h1>
+  <p class="muted">{{.Category.Total}} challenges. ● solved, · not yet.</p>
+</section>
+<section class="card">
+  <div class="table-wrap">
+  <table class="matrix">
+    <thead><tr><th>#</th><th>Name</th>
+      {{range .Challenges}}<th class="ch"><a href="{{$.GBase}}c/{{.Key}}" title="{{.Name}}, {{.Difficulty}} stars, solved by {{.Solvers}}">{{.Name}}</a><br><span class="stars">{{stars .Difficulty}}</span></th>{{end}}</tr></thead>
+    <tbody>
+      {{range .Rows}}<tr><td class="rank">{{.Rank}}</td><td><a href="{{$.GBase}}p/{{.Participant}}">{{.Name}}</a></td>
+        {{range .Solved}}<td class="cell">{{if .}}<span class="yes" title="solved">●</span>{{else}}<span class="no" title="not solved">·</span>{{end}}</td>{{end}}</tr>
+      {{else}}<tr><td colspan="99" class="empty">Nobody has joined yet.</td></tr>{{end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+{{end}}
+</main>
+</body>
+</html>
+{{end}}

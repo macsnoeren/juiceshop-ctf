@@ -1,4 +1,4 @@
-{{define "chead"}}<!doctype html>
+{{define "head"}}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -10,31 +10,56 @@
 {{end}}
 
 {{define "nav"}}
-<header class="brand"><span class="logo" aria-hidden="true">◆</span> {{.}}
-  <nav><a href="{{path "/"}}">Leaderboard</a><a href="{{path "/beamer"}}">Beamer</a></nav>
+<header class="brand"><a class="home" href="{{path "/"}}"><span class="logo" aria-hidden="true">◆</span> {{.Title}}</a>
+  {{if .Game}}<nav aria-label="This game"><a href="{{.GBase}}">Board</a><a href="{{.GBase}}beamer">Beamer</a></nav>{{end}}
 </header>
 {{end}}
 
-{{define "boardrows"}}
-{{range .Rows}}
-<tr{{if eq .Rank 1}} class="top1"{{end}}>
+{{define "gamestate"}}
+<p class="game-state">
+  {{if .Ended}}<span class="badge done">Final result</span>
+  {{else if eq .State "running"}}<span class="badge live">Live</span>
+  {{else}}<span class="badge">Open for joining</span>{{end}}
+  {{if and .Game.EndsAt (not .Ended)}}<span class="muted">ends {{datetime .Game.EndsAt}}</span>{{end}}
+  {{if and .Game.StartsAt (not .Ended)}}<span class="muted">starts {{datetime .Game.StartsAt}}</span>{{end}}
+</p>
+{{end}}
+
+{{/* The category bar of one row: rects sized in challenges, on an axis of
+     every challenge. A <title> per part names the category for hover and
+     screen readers; the numbers are also in the row itself. */}}
+{{define "catbar"}}<svg class="catbar" viewBox="0 0 {{.Total}} 10" preserveAspectRatio="none" role="img" aria-label="{{.Solved}} of {{.Total}} by category"><rect class="track" x="0" y="0" width="{{.Total}}" height="10"/>{{range catbar .Counts .Cats}}<rect class="cat-{{.Index}}" x="{{.X}}" y="0" width="{{.W}}" height="10"><title>{{.Name}}: {{.W}} of {{.Total}}</title></rect>{{end}}</svg>{{end}}
+
+{{define "podium"}}
+{{range .B.Podium}}
+<a class="step place-{{.Rank}}" href="{{$.GBase}}p/{{.Participant}}" data-pid="{{.Participant}}">
+  <span class="medal" aria-hidden="true">{{.Rank}}</span>
+  <span class="who">{{.Name}}</span>
+  <span class="pts">{{.Score}}</span>
+</a>
+{{else}}<p class="muted empty">The podium fills as soon as someone scores.</p>{{end}}
+{{end}}
+
+{{define "rows"}}
+{{range .B.Rows}}
+<tr data-pid="{{.Participant}}" data-score="{{.Score}}"{{if le .Rank 3}} class="top{{.Rank}}"{{end}}>
   <td class="rank">{{.Rank}}</td>
-  <td><span class="dot{{if .Online}} on{{end}}" title="{{if .Online}}online{{else}}offline{{end}}"></span><a href="{{path "/p/"}}{{.ParticipantID}}">{{.Name}}</a></td>
+  <td class="name"><span class="dot{{if .Online}} on{{end}}" title="{{if .Online}}online{{else}}offline{{end}}"></span><a href="{{$.GBase}}p/{{.Participant}}">{{.Name}}</a>{{if .FirstBloods}} <span class="blood" title="first to solve {{.FirstBloods}} challenge(s)">✦{{.FirstBloods}}</span>{{end}}</td>
   <td class="n">{{.Score}}</td>
-  <td class="n">{{.Solved}}/{{.Total}}</td>
-  <td class="n hide-narrow">{{clock .LastSolve}}</td>
+  <td class="n hide-narrow">{{.Solved}}/{{$.B.Total}}</td>
+  <td class="bar hide-narrow">{{template "catbar" (bar .Categories $.B.Categories $.B.Total .Solved)}}</td>
 </tr>
 {{else}}
-<tr><td colspan="5" class="empty">No participants yet. As soon as a student signs up on their instance, they appear here.</td></tr>
+<tr><td colspan="5" class="empty">Nobody has joined yet. As soon as a student joins from their VM, they appear here.</td></tr>
 {{end}}
 {{end}}
 
-{{define "board"}}
-<div class="table-wrap">
-<table id="board" class="board" data-api="{{path "/api/v1/leaderboard"}}" data-base="{{path ""}}">
-  <thead><tr><th>#</th><th>Name</th><th class="n">Points</th><th class="n">Solved</th><th class="n hide-narrow">Last solve</th></tr></thead>
-  <tbody>{{template "boardrows" .}}</tbody>
-</table>
-</div>
-<p class="updated" id="updated">Updates every 10 seconds</p>
+{{define "ticker"}}
+{{range .B.Ticker}}
+<li{{if .FirstBlood}} class="first"{{end}}><time>{{hm .At}}</time>
+  <a href="{{$.GBase}}p/{{.Participant}}">{{.Name}}</a>
+  <a class="muted" href="{{$.GBase}}c/{{.Challenge}}">{{.ChallengeName}}</a>
+  <span class="stars" title="{{.Difficulty}} stars">{{stars .Difficulty}}</span>
+  {{if .FirstBlood}}<span class="badge blood">first blood</span>{{end}}</li>
+{{else}}<li class="muted">Nothing solved yet.</li>{{end}}
 {{end}}

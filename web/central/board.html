@@ -1,0 +1,40 @@
+{{define "board"}}{{template "head" (print .Game.Name " · " .Title)}}
+<body>
+<main>
+{{template "nav" .}}
+<div class="game-head"><h1>{{.Game.Name}}</h1>{{template "gamestate" .}}</div>
+<div id="board" data-json="{{.GBase}}board.json" data-base="{{.GBase}}" data-chart="{{.GBase}}chart.svg">
+  <section class="podium" id="podium" aria-label="The top three">{{template "podium" .}}</section>
+  <div class="board-grid">
+    <section class="card">
+      <h2>Standings</h2>
+      <div class="table-wrap">
+      <table class="board">
+        <thead><tr><th>#</th><th>Name</th><th class="n">Points</th><th class="n hide-narrow">Solved</th><th class="hide-narrow">By category</th></tr></thead>
+        <tbody id="rows">{{template "rows" .}}</tbody>
+      </table>
+      </div>
+      <p class="hint">Equal points: whoever got there first is ahead. ✦ marks a first blood — the first to solve a challenge; it is worth no extra points.</p>
+    </section>
+    <section class="card">
+      <h2>Live</h2>
+      <ol class="ticker" id="ticker">{{template "ticker" .}}</ol>
+    </section>
+  </div>
+  <section class="card">
+    <h2>Score over time</h2>
+    <img id="chart" class="chart" src="{{.GBase}}chart.svg" alt="Score over time of the top ten, as a line per participant" width="960" height="320">
+  </section>
+  <section class="card">
+    <h2>Categories</h2>
+    <ul class="legend">
+      {{range .B.Categories}}<li><span class="swatch cat-{{.Index}}" aria-hidden="true"></span><a href="{{$.GBase}}cat/{{.Slug}}">{{.Name}}</a> <span class="muted">{{.Total}}</span></li>{{end}}
+    </ul>
+  </section>
+</div>
+<p class="updated" id="updated">Updates every 10 seconds</p>
+</main>
+<script src="{{path "/static/board.js"}}" defer></script>
+</body>
+</html>
+{{end}}

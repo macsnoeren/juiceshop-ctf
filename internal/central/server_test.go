@@ -4,293 +4,589 @@ import (
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
+	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
-	protocol "github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol/v1"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/web/static"
 )
 
-var t0 = time.Date(2026, 11, 18, 9, 0, 0, 0, time.UTC)
+var update = flag.Bool("update", false, "rewrite the golden files in testdata/")
 
-const tok1 = "token-for-cs-1-xxxxxxxxxxxx"
+const base = "/juiceshop-ctf"
 
-func newServer(t *testing.T) (*Server, *store.Store) {
+var t0 = time.Date(2026, 11, 19, 9, 0, 0, 0, time.UTC)
+
+type env struct {
+	t   *testing.T
+	st  *store.Store
+	srv *Server
+	h   http.Handler
+	now time.Time
+	jar map[string]string // admin cookies
+}
+
+func newEnv(t *testing.T) *env {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "c.db"))
+	st, err := store.Open(filepath.Join(t.TempDir(), "central.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	st.SeedInstance("cs-1", "", tok1, t0)
-	st.SeedInstance("cs-2", "", "token-for-cs-2-xxxxxxxxxxxx", t0)
-	s, err := New(Config{BasePath: "/leaderboard"}, st, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	st.SaveSettings(store.Settings{Title: "Juice Shop CTF", Timezone: "UTC", RetentionDays: 30})
+	srv, err := New(Config{BasePath: base}, st, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.now = func() time.Time { return t0.Add(time.Hour) }
-	return s, st
+	e := &env{t: t, st: st, srv: srv, now: t0, jar: map[string]string{}}
+	srv.SetClock(func() time.Time { return e.now })
+	e.h = srv.Handler()
+	return e
 }
 
-func sampleReport(instance, rid, name string) protocol.Report {
-	solved := t0.Add(10 * time.Minute)
-	return protocol.Report{
-		Protocol: 1, Instance: instance, SentAt: t0.Add(time.Hour), AgentVersion: "0.1.0",
-		JuiceShop:    protocol.JuiceShop{Version: "20.3.0", Reachable: true},
-		Registration: &protocol.Registration{ID: strings.Repeat(rid, 32), Name: name, RegisteredAt: t0},
-		Challenges: []protocol.Challenge{
-			{Key: "scoreBoardChallenge", Name: "Score Board", Category: "Miscellaneous", Difficulty: 1, SolvedAt: &solved},
-			{Key: "loginAdminChallenge", Name: "Login Admin", Category: "Injection", Difficulty: 2},
-		},
+func (e *env) req(method, path string, body io.Reader, hdr ...string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, path, body)
+	r.RemoteAddr = "192.0.2.7:4000"
+	for i := 0; i+1 < len(hdr); i += 2 {
+		r.Header.Set(hdr[i], hdr[i+1])
+	}
+	for k, v := range e.jar {
+		r.AddCookie(&http.Cookie{Name: k, Value: v})
+	}
+	w := httptest.NewRecorder()
+	e.h.ServeHTTP(w, r)
+	for _, c := range w.Result().Cookies() {
+		e.jar[c.Name] = c.Value
+	}
+	return w
+}
+
+func (e *env) get(path string) *httptest.ResponseRecorder { return e.req("GET", path, nil) }
+
+func (e *env) json(path string, v any, hdr ...string) *httptest.ResponseRecorder {
+	b, _ := json.Marshal(v)
+	return e.req("POST", path, bytes.NewReader(b), append([]string{"Content-Type", "application/json"}, hdr...)...)
+}
+
+var csrfRE = regexp.MustCompile(`name="csrf" value="([0-9a-f]+)"`)
+
+// post submits an admin form with the CSRF token of the admin page.
+func (e *env) post(path string, form url.Values) *httptest.ResponseRecorder {
+	e.t.Helper()
+	m := csrfRE.FindStringSubmatch(e.get(base + "/admin/").Body.String())
+	if m == nil {
+		e.t.Fatal("no CSRF token on the admin page")
+	}
+	if form == nil {
+		form = url.Values{}
+	}
+	form.Set("csrf", m[1])
+	return e.req("POST", path, strings.NewReader(form.Encode()), "Content-Type", "application/x-www-form-urlencoded")
+}
+
+var codeRE = regexp.MustCompile(`<p class="joincode">([a-z0-9-]+)</p>`)
+
+// game creates a game through admin and returns its id and join code.
+func (e *env) game(name string, form url.Values, state string) (int64, string) {
+	e.t.Helper()
+	if form == nil {
+		form = url.Values{}
+	}
+	form.Set("name", name)
+	w := e.post(base+"/admin/games", form)
+	m := codeRE.FindStringSubmatch(w.Body.String())
+	if w.Code != 200 || m == nil {
+		e.t.Fatalf("create game: %d %s", w.Code, w.Body.String())
+	}
+	gs, _ := e.st.Games(e.now)
+	id := gs[0].ID
+	if state != "" {
+		e.post(fmt.Sprintf("%s/admin/games/%d/state", base, id), url.Values{"to": {state}, "confirm": {name}})
+	}
+	return id, m[1]
+}
+
+func (e *env) join(code, name string) (int, protocol.JoinResponse) {
+	var jr protocol.JoinResponse
+	w := e.json(base+"/api/v2/join", protocol.JoinRequest{Protocol: 2, Name: name, Code: code,
+		Node: protocol.Node{UID: protocol.NewNodeUID(), Version: "v1.1.0-test", JuiceShop: "20.3.0"}})
+	json.Unmarshal(w.Body.Bytes(), &jr)
+	return w.Code, jr
+}
+
+func (e *env) report(token string, solves map[string]time.Time, applied ...string) (int, protocol.ReportResponse) {
+	r := protocol.Report{Protocol: 2, SentAt: e.now, Boot: "boot-1", Reachable: true, CommandsApplied: applied,
+		Node: protocol.Node{UID: strings.Repeat("b", 32), Version: "v1.1.0-test", JuiceShop: "20.3.0"}}
+	for k, t := range solves {
+		r.Solves = append(r.Solves, protocol.Solve{Key: k, SolvedAt: t})
+	}
+	var out protocol.ReportResponse
+	w := e.json(base+"/api/v2/report", r, "Authorization", "Bearer "+token)
+	json.Unmarshal(w.Body.Bytes(), &out)
+	return w.Code, out
+}
+
+func (e *env) events(kind string) []store.Event {
+	evs, _ := e.st.Events(store.EventFilter{Kind: kind})
+	return evs
+}
+
+// ---- T1.1-14, -15, -19: the API ------------------------------------------
+
+func TestJoinAnswers(t *testing.T) {
+	e := newEnv(t)
+	_, code := e.game("Open", nil, "open")
+	_, closedCode := e.game("Ended", nil, "closed")
+	status, jr := e.join(code, "Zoë")
+	if status != 201 || !protocol.ValidParticipantToken(jr.Token) || jr.Game.State != "open" || !strings.HasSuffix(jr.Board, base+"/g/open/") {
+		t.Fatalf("join: %d %+v", status, jr)
+	}
+	if s, _ := e.join("23456789ab", "Zoë"); s != 403 {
+		t.Errorf("unknown code: %d", s)
+	}
+	if s, _ := e.join(closedCode, "Zoë"); s != 409 {
+		t.Errorf("closed game: %d", s)
+	}
+	if s, _ := e.join(code, "<script>"); s != 400 {
+		t.Errorf("invalid name: %d", s)
+	}
+	if s, _ := e.report(jr.Token, map[string]time.Time{"scoreBoardChallenge": t0}); s != 200 {
+		t.Errorf("the token does not work for a report: %d", s)
+	}
+	if w := e.json(base+"/api/v2/report", map[string]int{"protocol": 2}, "Authorization", "Bearer ctfp_nonsense"); w.Code != 401 {
+		t.Errorf("a malformed token: %d", w.Code)
+	}
+	if len(e.events(store.EvJoin)) != 1 || len(e.events(store.EvJoinRefused)) != 3 || len(e.events(store.EvRejected)) != 1 {
+		t.Errorf("events: %d joins, %d refused, %d rejected", len(e.events(store.EvJoin)), len(e.events(store.EvJoinRefused)), len(e.events(store.EvRejected)))
 	}
 }
 
-func send(s *Server, token string, body []byte) *httptest.ResponseRecorder {
-	req := httptest.NewRequest("POST", "/leaderboard/api/v1/report", bytes.NewReader(body))
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+func TestJoinLimits(t *testing.T) {
+	e := newEnv(t)
+	_, code := e.game("Hall", nil, "running")
+	for i := range 30 {
+		if s, _ := e.join(code, fmt.Sprintf("Student %d", i)); s != 201 {
+			t.Fatalf("join %d from one address within a minute: %d", i+1, s)
+		}
 	}
-	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, req)
-	return rec
-}
-
-func jsonOf(v any) []byte { b, _ := json.Marshal(v); return b }
-
-func TestReportEndpoint(t *testing.T) {
-	s, st := newServer(t)
-	good := jsonOf(sampleReport("cs-1", "a", "Sanne de Vries"))
-
-	if rec := send(s, "", good); rec.Code != 401 {
-		t.Errorf("no token: %d", rec.Code)
+	for i := 1; i <= 21; i++ {
+		s, _ := e.join("23456789ab", "Guess")
+		want := 403
+		if i == 21 {
+			want = 429
+		}
+		if s != want {
+			t.Errorf("wrong code %d: %d, want %d", i, s, want)
+		}
 	}
-	if rec := send(s, "wrong-token-xxxxxxxxxxxx", good); rec.Code != 401 {
-		t.Errorf("wrong token: %d", rec.Code)
+	e.now = e.now.Add(time.Minute)
+	if s, _ := e.join(code, "After a minute"); s != 201 {
+		t.Errorf("after a minute the address may join again: %d", s)
 	}
-	if rec := send(s, tok1, jsonOf(sampleReport("cs-2", "a", "Sanne de Vries"))); rec.Code != 400 {
-		t.Errorf("report for another instance: %d", rec.Code)
+	for i := len(e.srv.codeJoins.m); i < 0; i++ {
 	}
-	bad := sampleReport("cs-1", "a", "Sanne de Vries")
-	bad.Protocol = 9
-	if rec := send(s, tok1, jsonOf(bad)); rec.Code != 400 || !strings.Contains(rec.Body.String(), "protocol") {
-		t.Errorf("unknown protocol: %d %s", rec.Code, rec.Body)
-	}
-	if rec := send(s, tok1, []byte("{not json")); rec.Code != 400 {
-		t.Errorf("not JSON: %d", rec.Code)
-	}
-	huge := append([]byte(`{"pad":"`), bytes.Repeat([]byte("x"), protocol.MaxBodyBytes)...)
-	huge = append(huge, []byte(`"}`)...)
-	if rec := send(s, tok1, huge); rec.Code != 413 {
-		t.Errorf("too large: %d", rec.Code)
-	}
-
-	rec := send(s, tok1, good)
-	if rec.Code != 200 {
-		t.Fatalf("good report: %d %s", rec.Code, rec.Body)
-	}
-	var resp protocol.Response
-	json.Unmarshal(rec.Body.Bytes(), &resp)
-	if !resp.OK || len(resp.Commands) != 0 || resp.Standing == nil || resp.Standing.Score != 100 || resp.Standing.Rank != 1 {
-		t.Errorf("response = %+v", resp)
-	}
-
-	rows, _ := st.Leaderboard(t0.Add(time.Hour))
-	st.ResetParticipant(rows[0].ParticipantID, t0.Add(time.Hour))
-	rec = send(s, tok1, good)
-	resp = protocol.Response{} // Unmarshal does not clear fields absent from the JSON
-	json.Unmarshal(rec.Body.Bytes(), &resp)
-	if len(resp.Commands) != 1 || resp.Commands[0].Type != protocol.CmdResetRegistration {
-		t.Errorf("pending command not delivered: %+v", resp)
-	}
-	if resp.Standing != nil {
-		t.Error("an ended participant still has a standing")
+	e.srv.codeJoins.m[protocol.Hash(strings.ReplaceAll(code, "-", ""))].n = JoinsPerGamePerMin
+	if s, _ := e.join(code, "Number 301"); s != 429 {
+		t.Errorf("the 301st join of a game in a minute: %d", s)
 	}
 }
 
-var urlAttr = regexp.MustCompile(`(?:href|action|src|data-api|data-base)="([^"]*)"`)
+func TestLegacyReportIsGone(t *testing.T) {
+	e := newEnv(t)
+	v1 := `{"protocol":1,"instance":"cybersecurity-1","sent_at":"2026-11-18T10:00:00Z","agent_version":"0.1.0","juiceshop":{"version":"20.3.0","reachable":true},"registration":null,"challenges":[]}`
+	w := e.req("POST", base+"/api/v1/report", strings.NewReader(v1), "Authorization", "Bearer ctf_abc", "X-Real-IP", "198.51.100.9")
+	if w.Code != 410 {
+		t.Fatalf("1.0 report: %d", w.Code)
+	}
+	evs := e.events(store.EvLegacy)
+	if len(evs) != 1 || evs[0].Address != "198.51.100.9" || !strings.Contains(evs[0].Text, "cybersecurity-1") {
+		t.Errorf("legacy events %+v", evs)
+	}
+}
 
-func page(t *testing.T, s *Server, path string) string {
+// ---- T1.1-24..27: admin ----------------------------------------------------
+
+func TestJoinCodeIsShownOnce(t *testing.T) {
+	e := newEnv(t)
+	id, code := e.game("Class", nil, "")
+	page := e.get(fmt.Sprintf("%s/admin/games/%d", base, id)).Body.String()
+	if strings.Contains(page, code) || strings.Contains(page, strings.ReplaceAll(code, "-", "")) {
+		t.Error("the join code is shown again after leaving the page")
+	}
+	w := e.post(fmt.Sprintf("%s/admin/games/%d/code", base, id), nil)
+	m := codeRE.FindStringSubmatch(w.Body.String())
+	if m == nil || m[1] == code {
+		t.Fatal("regenerating showed no new code")
+	}
+	e.post(fmt.Sprintf("%s/admin/games/%d/state", base, id), url.Values{"to": {"open"}})
+	if s, _ := e.join(code, "Old code"); s != 403 {
+		t.Errorf("the old code still admits: %d", s)
+	}
+	if s, _ := e.join(m[1], "New code"); s != 201 {
+		t.Errorf("the new code does not admit: %d", s)
+	}
+	// every form carries a CSRF token, and a POST without one is refused
+	for _, p := range []string{"/admin/", fmt.Sprintf("/admin/games/%d", id)} {
+		body := e.get(base + p).Body.String()
+		if forms, tokens := strings.Count(body, `method="post"`), strings.Count(body, `name="csrf"`); forms == 0 || forms != tokens {
+			t.Errorf("%s: %d forms, %d CSRF tokens", p, forms, tokens)
+		}
+	}
+	w = e.req("POST", fmt.Sprintf("%s/admin/games/%d/clear", base, id), strings.NewReader("confirm=Class"), "Content-Type", "application/x-www-form-urlencoded")
+	if w.Code != 403 {
+		t.Errorf("a POST without the CSRF token: %d", w.Code)
+	}
+}
+
+func TestGamePageShowsEveryState(t *testing.T) {
+	e := newEnv(t)
+	id, code := e.game("Five", nil, "running")
+	var tokens []string
+	var ids []int64
+	for _, n := range []string{"Active One", "Active Two", "Hidden Three", "Left Four", "Removed Five"} {
+		_, jr := e.join(code, n)
+		tokens = append(tokens, jr.Token)
+		ids = append(ids, jr.Participant)
+		e.report(jr.Token, map[string]time.Time{"scoreBoardChallenge": t0})
+	}
+	e.post(fmt.Sprintf("%s/admin/participants/%d/hide", base, ids[2]), nil)
+	e.json(base+"/api/v2/leave", protocol.LeaveRequest{Protocol: 2, Reason: "forget"}, "Authorization", "Bearer "+tokens[3])
+	e.post(fmt.Sprintf("%s/admin/participants/%d/remove", base, ids[4]), url.Values{"confirm": {"Five"}})
+	page := e.get(fmt.Sprintf("%s/admin/games/%d", base, id)).Body.String()
+	for _, want := range []string{
+		`Active One`, `<span class="badge st-active">active</span>`, `<span class="badge st-hidden">hidden</span>`,
+		`<span class="badge st-left">left</span>`, `<span class="badge st-removed">removed</span>`, `v1.1.0-test`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("game page lacks %q", want)
+		}
+	}
+	if strings.Count(page, `class="badge st-active"`) != 2 {
+		t.Error("want two active participants")
+	}
+	b := e.get(base + "/g/five/board.json").Body.String()
+	for _, n := range []string{"Hidden Three", "Left Four", "Removed Five"} {
+		if strings.Contains(b, n) {
+			t.Errorf("%s is on the board", n)
+		}
+	}
+}
+
+func TestCleaningUp(t *testing.T) {
+	e := newEnv(t)
+	a, acode := e.game("Game A", nil, "running")
+	b, bcode := e.game("Game B", nil, "running")
+	_, ja := e.join(acode, "Anna")
+	_, jb := e.join(bcode, "Bram")
+	e.report(ja.Token, map[string]time.Time{"scoreBoardChallenge": t0})
+	e.report(jb.Token, map[string]time.Time{"scoreBoardChallenge": t0})
+	before := len(e.events(store.EvAdmin))
+
+	w := e.post(fmt.Sprintf("%s/admin/games/%d/clear", base, a), url.Values{"confirm": {"Game B"}})
+	if w.Code != 400 || len(e.events(store.EvAdmin)) != before {
+		t.Fatalf("clear with the wrong name: %d", w.Code)
+	}
+	if s, _ := e.report(ja.Token, nil); s != 200 {
+		t.Fatal("a refused clear changed something")
+	}
+	steps := []struct {
+		path string
+		form url.Values
+	}{
+		{fmt.Sprintf("%s/admin/participants/%d/hide", base, jb.Participant), nil},
+		{fmt.Sprintf("%s/admin/participants/%d/show", base, jb.Participant), nil},
+		{fmt.Sprintf("%s/admin/games/%d/clear", base, a), url.Values{"confirm": {"Game A"}}},
+		{fmt.Sprintf("%s/admin/games/%d/state", base, b), url.Values{"to": {"closed"}, "confirm": {"Game B"}}},
+		{fmt.Sprintf("%s/admin/games/%d/delete", base, a), url.Values{"confirm": {" Game A "}}},
+	}
+	for i, s := range steps {
+		w := e.post(s.path, s.form)
+		if w.Code != 200 && w.Code != 303 {
+			t.Fatalf("step %d: %d %s", i, w.Code, w.Body.String())
+		}
+		if n := len(e.events(store.EvAdmin)); n != before+i+1 {
+			t.Errorf("step %d left %d admin events, want exactly one", i, n-before-i)
+		}
+	}
+	if _, resp := e.report(ja.Token, nil); len(resp.Commands) != 1 || resp.Commands[0].Type != "forget" {
+		t.Errorf("Anna's VM was not told forget: %+v", resp)
+	}
+	if s, resp := e.report(jb.Token, nil); s != 200 || resp.Game.State != "closed" || resp.Standing == nil || resp.Standing.Score != 100 {
+		t.Errorf("game B was touched: %d %+v", s, resp)
+	}
+}
+
+func TestEventFeed(t *testing.T) {
+	e := newEnv(t)
+	a, acode := e.game("Feed A", nil, "running")
+	_, bcode := e.game("Feed B", nil, "running")
+	_, ja := e.join(acode, "-Anna")
+	e.join(bcode, "Bram")
+	e.join("23456789ab", "Guess")
+	e.report(ja.Token, map[string]time.Time{"scoreBoardChallenge": t0})
+	rows := func(q string) int { return strings.Count(e.get(base+"/admin/events"+q).Body.String(), `<tr class="ev-`) }
+	all := rows("")
+	if all < 6 {
+		t.Fatalf("feed has %d rows", all)
+	}
+	if n := rows(fmt.Sprintf("?game=%d", a)); n == 0 || n >= all {
+		t.Errorf("game filter: %d of %d", n, all)
+	}
+	if n := rows("?kind=join-refused"); n != 1 {
+		t.Errorf("kind filter: %d", n)
+	}
+	if n := rows(fmt.Sprintf("?participant=%d", ja.Participant)); n < 3 {
+		t.Errorf("participant filter: %d", n)
+	}
+	r := csv.NewReader(strings.NewReader(e.get(base + "/admin/events.csv?kind=join").Body.String()))
+	recs, err := r.ReadAll()
+	if err != nil || len(recs) != 3 {
+		t.Fatalf("csv: %v %d", err, len(recs))
+	}
+	for _, rec := range recs[1:] {
+		for _, cell := range rec {
+			if cell != "" && strings.ContainsRune("=+-@", rune(cell[0])) {
+				t.Errorf("CSV cell %q could be read as a formula", cell)
+			}
+		}
+	}
+	page := e.get(base + "/admin/events").Body.String()
+	if strings.Contains(page, ja.Token) || strings.Contains(page, acode) || strings.Contains(page, strings.ReplaceAll(acode, "-", "")) {
+		t.Error("the feed shows a token or a join code")
+	}
+}
+
+// ---- T1.1-44..51: the boards -------------------------------------------------
+
+// seed builds the golden game: four participants with solves at fixed times,
+// one of them hidden.
+func seed(t *testing.T, e *env, form url.Values) (int64, []protocol.JoinResponse) {
 	t.Helper()
-	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
-	if rec.Code != 200 {
-		t.Fatalf("GET %s: %d", path, rec.Code)
+	if form == nil {
+		form = url.Values{}
 	}
-	body := rec.Body.String()
-	for _, m := range urlAttr.FindAllStringSubmatch(body, -1) {
-		if strings.HasPrefix(m[1], "/") && !strings.HasPrefix(m[1], "/leaderboard") {
-			t.Errorf("%s: %q is not under the base path", path, m[1])
+	form.Set("starts_at", "2026-11-19T09:00")
+	form.Set("ends_at", "2026-11-19T11:00")
+	id, code := e.game("Golden Game", form, "running")
+	var js []protocol.JoinResponse
+	for i, n := range []string{"Zoë de Vries", "Bram O'Neill", "Chen Li", "Hidden Henk"} {
+		e.now = t0.Add(time.Duration(i+1) * time.Minute)
+		_, jr := e.join(code, n)
+		js = append(js, jr)
+	}
+	m := func(i int) time.Time { return t0.Add(time.Duration(i) * time.Minute) }
+	plan := []struct {
+		who    int
+		at     int
+		solves map[string]int
+	}{
+		{0, 10, map[string]int{"scoreBoardChallenge": 9}},
+		{1, 12, map[string]int{"scoreBoardChallenge": 11, "loginAdminChallenge": 12}},
+		{2, 15, map[string]int{"directoryListingChallenge": 14}},
+		{0, 20, map[string]int{"scoreBoardChallenge": 9, "nullByteChallenge": 19, "easterEggLevelOneChallenge": 19}},
+		{3, 21, map[string]int{"scoreBoardChallenge": 1}},
+		{2, 30, map[string]int{"directoryListingChallenge": 14, "loginAdminChallenge": 29}},
+	}
+	for _, p := range plan {
+		e.now = m(p.at)
+		sv := map[string]time.Time{}
+		for k, at := range p.solves {
+			sv[k] = m(at)
 		}
+		e.report(js[p.who].Token, sv)
 	}
-	return body
+	e.post(fmt.Sprintf("%s/admin/participants/%d/hide", base, js[3].Participant), nil)
+	e.now = m(40)
+	return id, js
 }
 
-func TestPublicPages(t *testing.T) {
-	s, st := newServer(t)
-	send(s, tok1, jsonOf(sampleReport("cs-1", "a", "Sanne de Vries")))
-	// A name the protocol would refuse, put straight into the database, to
-	// prove the templates escape regardless.
-	r := sampleReport("cs-2", "b", "x")
-	r.Registration.Name = "<script>alert(1)</script>"
-	st.MergeReport("cs-2", &r, t0.Add(time.Hour))
-
-	body := page(t, s, "/leaderboard/")
-	if !strings.Contains(body, "Sanne de Vries") {
-		t.Error("index does not show the participant")
-	}
-	if strings.Contains(body, "<script>alert") {
-		t.Error("a name was not escaped")
-	}
-	page(t, s, "/leaderboard/beamer")
-	rows, _ := st.Leaderboard(t0.Add(time.Hour))
-	var sanne int64
-	for _, row := range rows {
-		if row.Name == "Sanne de Vries" {
-			sanne = row.ParticipantID
-		}
-	}
-	if !strings.Contains(page(t, s, "/leaderboard/p/"+itoa(sanne)), "Score Board") {
-		t.Error("participant page lacks the solve")
-	}
-
-	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/leaderboard/api/v1/leaderboard", nil))
-	var b struct {
-		Total int `json:"total"`
-		Rows  []struct {
-			Rank        int    `json:"rank"`
-			Participant int64  `json:"participant"`
-			Name        string `json:"name"`
-			Score       int    `json:"score"`
-			Solved      int    `json:"solved"`
-			Total       int    `json:"total"`
-			Online      bool   `json:"online"`
-		} `json:"rows"`
-		Recent []map[string]any `json:"recent"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
-		t.Fatal(err)
-	}
-	if b.Total != 2 || len(b.Rows) != 2 || b.Rows[0].Score != 100 || !b.Rows[0].Online || len(b.Recent) != 2 {
-		t.Errorf("leaderboard JSON = %+v", b)
-	}
-	if strings.Contains(rec.Body.String(), "cs-1") || strings.Contains(rec.Body.String(), "cheat") {
-		t.Error("the public JSON leaks instance ids or cheat scores")
-	}
-
-	st.SetHidden(sanne, true)
-	rec = httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/leaderboard/api/v1/leaderboard", nil))
-	if strings.Contains(rec.Body.String(), "Sanne") {
-		t.Error("a hidden participant is in the JSON")
-	}
-	rec = httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/leaderboard/p/"+itoa(sanne), nil))
-	if rec.Code != 404 {
-		t.Errorf("hidden participant page: %d", rec.Code)
-	}
-}
-
-func itoa(i int64) string { return strconv.FormatInt(i, 10) }
-
-// admin GETs the admin page and returns its body and the CSRF cookie.
-func admin(t *testing.T, s *Server) (string, *http.Cookie) {
+func golden(t *testing.T, name string, got []byte) {
 	t.Helper()
-	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/leaderboard/admin/", nil))
-	if rec.Code != 200 {
-		t.Fatalf("admin: %d", rec.Code)
-	}
-	for _, c := range rec.Result().Cookies() {
-		if c.Name == adminCSRFCookie {
-			return rec.Body.String(), c
+	path := filepath.Join("testdata", name)
+	if *update {
+		os.MkdirAll("testdata", 0o755)
+		if err := os.WriteFile(path, got, 0o644); err != nil {
+			t.Fatal(err)
 		}
 	}
-	t.Fatal("no admin csrf cookie")
-	return "", nil
-}
-
-func adminPost(s *Server, path string, form url.Values, c *http.Cookie) *httptest.ResponseRecorder {
-	req := httptest.NewRequest("POST", path, strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if c != nil {
-		req.AddCookie(c)
-	}
-	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, req)
-	return rec
-}
-
-var tokenRE = regexp.MustCompile(`ctf_[0-9a-f]{64}`)
-
-func TestAdmin(t *testing.T) {
-	s, st := newServer(t)
-	_, c := admin(t, s)
-
-	if rec := adminPost(s, "/leaderboard/admin/instances", url.Values{"id": {"cs-9"}}, nil); rec.Code != 403 {
-		t.Errorf("POST without CSRF: %d", rec.Code)
-	}
-	rec := adminPost(s, "/leaderboard/admin/instances", url.Values{"csrf": {c.Value}, "id": {"cs-9"}, "label": {"VPS 9"}}, c)
-	tok := tokenRE.FindString(rec.Body.String())
-	if rec.Code != 200 || tok == "" {
-		t.Fatalf("create: %d, token shown: %v", rec.Code, tok != "")
-	}
-	if id, _ := st.InstanceForToken(tok); id != "cs-9" {
-		t.Error("the shown token does not work")
-	}
-	body, _ := admin(t, s)
-	if tokenRE.MatchString(body) {
-		t.Error("the token is readable after creation")
-	}
-	if !strings.Contains(body, "cs-9") {
-		t.Error("new instance not listed")
-	}
-
-	// Reset queues exactly one command, however often it is clicked.
-	send(s, tok1, jsonOf(sampleReport("cs-1", "a", "Sanne de Vries")))
-	rows, _ := st.Leaderboard(t0.Add(time.Hour))
-	pid := itoa(rows[0].ParticipantID)
-	for i := 0; i < 3; i++ {
-		if rec := adminPost(s, "/leaderboard/admin/participants/"+pid+"/reset", url.Values{"csrf": {c.Value}}, c); rec.Code != 303 {
-			t.Fatalf("reset: %d", rec.Code)
-		}
-	}
-	cmds, _ := st.PendingCommands("cs-1", t0)
-	if len(cmds) != 1 {
-		t.Errorf("%d commands queued, want 1", len(cmds))
-	}
-
-	rec = httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/leaderboard/admin/export.csv", nil))
-	recs, err := csv.NewReader(rec.Body).ReadAll()
+	want, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%v (run go test -run %s -update once)", err, t.Name())
 	}
-	if len(recs) != 2 || recs[0][0] != "participant" || recs[1][1] != "Sanne de Vries" {
-		t.Errorf("csv = %v", recs)
-	}
-
-	if rec := adminPost(s, "/leaderboard/admin/scoring", url.Values{"csrf": {c.Value}, "points1": {"5"}}, c); rec.Code != 303 {
-		t.Errorf("scoring: %d", rec.Code)
-	}
-	if sc, _ := st.Scoring(); sc[1] != 5 {
-		t.Error("scoring not saved")
+	if !bytes.Equal(got, want) {
+		t.Errorf("%s differs from the golden file (go test -update to accept):\n%s", name, got)
 	}
 }
 
-func TestCSVSafe(t *testing.T) {
-	for in, want := range map[string]string{"-1": "'-1", "Ana": "Ana", "": ""} {
-		if got := csvSafe(in); got != want {
-			t.Errorf("csvSafe(%q) = %q", in, got)
+func TestBoardJSONGolden(t *testing.T) {
+	e := newEnv(t)
+	seed(t, e, nil)
+	w := e.get(base + "/g/golden-game/board.json")
+	if w.Code != 200 {
+		t.Fatal(w.Code)
+	}
+	var v any
+	json.Unmarshal(w.Body.Bytes(), &v)
+	pretty, _ := json.MarshalIndent(v, "", "  ")
+	golden(t, "board.golden.json", append(pretty, '\n'))
+	var b store.Board
+	json.Unmarshal(w.Body.Bytes(), &b)
+	if len(b.Rows) != 3 || b.Rows[0].Name != "Zoë de Vries" || len(b.Podium) != 3 || len(b.Series) != 3 {
+		t.Errorf("board %+v", b.Rows)
+	}
+}
+
+func TestChartGolden(t *testing.T) {
+	e := newEnv(t)
+	seed(t, e, nil)
+	w := e.get(base + "/g/golden-game/chart.svg")
+	if w.Code != 200 || !strings.HasPrefix(w.Header().Get("Content-Type"), "image/svg+xml") || strings.Contains(w.Header().Get("Content-Security-Policy"), "script") {
+		t.Fatalf("chart: %d %v", w.Code, w.Header())
+	}
+	golden(t, "chart.golden.svg", w.Body.Bytes())
+	if n := strings.Count(w.Body.String(), "<polyline"); n != 3 {
+		t.Errorf("%d lines, want 3", n)
+	}
+	if !strings.Contains(w.Body.String(), "prefers-color-scheme: dark") {
+		t.Error("the chart has no dark colours")
+	}
+}
+
+func TestBoardPage(t *testing.T) {
+	e := newEnv(t)
+	_, code := e.game("Escape", nil, "running")
+	_, jr := e.join(code, "Bram O'Neill")
+	e.report(jr.Token, map[string]time.Time{"scoreBoardChallenge": t0})
+	body := e.get(base + "/g/escape/").Body.String()
+	if !strings.Contains(body, "Bram O&#39;Neill") || strings.Contains(body, "Bram O'Neill") {
+		t.Error("a name is not escaped on the board")
+	}
+	for _, want := range []string{`id="podium"`, `id="rows"`, `id="ticker"`, `class="catbar"`, `chart.svg`, `class="badge blood">first blood`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("board lacks %s", want)
 		}
+	}
+	css, _ := static.FS.ReadFile("style.css")
+	js, _ := static.FS.ReadFile("board.js")
+	if !strings.Contains(string(css), "@media (prefers-reduced-motion: reduce)") || !strings.Contains(string(js), "prefers-reduced-motion: reduce") {
+		t.Error("reduced motion is not honoured by both the stylesheet and the script")
+	}
+	if regexp.MustCompile(`\.innerHTML|insertAdjacentHTML|document\.write`).Match(js) {
+		t.Error("board.js uses innerHTML")
+	}
+}
+
+// crawl follows every link under the game from the board and returns the
+// bodies; any page that is not 200 fails the test.
+func crawl(t *testing.T, e *env, start string) map[string]string {
+	t.Helper()
+	hrefRE := regexp.MustCompile(`(?:href|src)="([^"]+)"`)
+	seen := map[string]string{}
+	todo := []string{start}
+	for len(todo) > 0 && len(seen) < 500 {
+		p := todo[0]
+		todo = todo[1:]
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		w := e.get(p)
+		if w.Code != 200 {
+			t.Errorf("%s: %d", p, w.Code)
+		}
+		seen[p] = w.Body.String()
+		for _, m := range hrefRE.FindAllStringSubmatch(w.Body.String(), -1) {
+			u := strings.ReplaceAll(m[1], "&amp;", "&")
+			if strings.HasPrefix(u, start) || strings.HasPrefix(u, base+"/static/") {
+				todo = append(todo, u)
+			}
+		}
+	}
+	return seen
+}
+
+func TestEveryLinkResolves(t *testing.T) {
+	e := newEnv(t)
+	seed(t, e, nil)
+	pages := crawl(t, e, base+"/g/golden-game/")
+	var parts, chals, cats int
+	for p := range pages {
+		switch {
+		case strings.Contains(p, "/p/"):
+			parts++
+		case strings.Contains(p, "/c/"):
+			chals++
+		case strings.Contains(p, "/cat/"):
+			cats++
+		}
+	}
+	if parts != 3 || chals < 50 || cats != 14 {
+		t.Errorf("crawled %d participant, %d challenge, %d category pages", parts, chals, cats)
+	}
+	if !strings.Contains(e.get(base+"/g/golden-game/c/xssBonusChallenge").Body.String(), "Nobody has solved this challenge yet.") {
+		t.Error("an unsolved challenge does not say so")
+	}
+	if e.get(base+"/g/golden-game/c/xxeFileDisclosureChallenge").Code != 404 {
+		t.Error("a challenge disabled in Docker has a page")
+	}
+	pp := e.get(fmt.Sprintf(base+"/g/golden-game/p/%d", 1)).Body.String()
+	if !strings.Contains(pp, "first blood") || !strings.Contains(pp, "By difficulty") {
+		t.Error("the participant page lacks first bloods or the difficulty spread")
+	}
+}
+
+func TestBeamerStates(t *testing.T) {
+	e := newEnv(t)
+	id, _ := seed(t, e, nil)
+	running := e.get(base + "/g/golden-game/beamer").Body.String()
+	if !strings.Contains(running, `id="countdown" data-ends-at="2026-11-19T11:00:00Z">1:20:00</p>`) || !strings.Contains(running, `class="ticker strip"`) {
+		t.Errorf("the running beamer lacks the countdown or the ticker")
+	}
+	e.post(fmt.Sprintf("%s/admin/games/%d/state", base, id), url.Values{"to": {"closed"}, "confirm": {"Golden Game"}})
+	ended := e.get(base + "/g/golden-game/beamer").Body.String()
+	if !strings.Contains(ended, "Final result") || strings.Contains(ended, `id="countdown"`) || strings.Contains(ended, `class="ticker strip"`) || !strings.Contains(ended, `data-final="1"`) {
+		t.Error("the ended beamer does not show the final result")
+	}
+}
+
+func TestBoardOptions(t *testing.T) {
+	e := newEnv(t)
+	e.game("Secret", url.Values{"hidden": {"on"}}, "running")
+	for _, p := range []string{"/g/secret/", "/g/secret/board.json", "/g/secret/chart.svg", "/g/secret/beamer", "/g/secret/p/1", "/g/secret/c/scoreBoardChallenge", "/g/secret/cat/xss"} {
+		if w := e.get(base + p); w.Code != 404 {
+			t.Errorf("hidden board %s: %d", p, w.Code)
+		}
+	}
+	if strings.Contains(e.get(base+"/").Body.String(), "Secret") {
+		t.Error("a hidden game is listed")
+	}
+	e.game("Draft", nil, "")
+	if e.get(base+"/g/draft/").Code != 404 {
+		t.Error("a draft game's board is public")
+	}
+
+	seed(t, e, url.Values{"initials": {"on"}})
+	pages := crawl(t, e, base+"/g/golden-game/")
+	pages["json"] = e.get(base + "/g/golden-game/board.json").Body.String()
+	for p, body := range pages {
+		for _, full := range []string{"Zoë", "Vries", "Neill", "Chen"} {
+			if strings.Contains(body, full) {
+				t.Errorf("%s shows %q on an initials board", p, full)
+			}
+		}
+	}
+	if !strings.Contains(pages["json"], `"Z.D.V."`) {
+		t.Error("initials are not shown")
 	}
 }

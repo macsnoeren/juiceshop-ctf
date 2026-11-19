@@ -1,36 +1,45 @@
-{{define "participant"}}{{template "chead" .Title}}
+{{define "participant"}}{{template "head" (print .P.Row.Name " · " .Game.Name)}}
 <body>
 <main>
-{{template "nav" .Title}}
-{{with .D}}
+{{template "nav" .}}
+{{with .P}}
 <section class="card">
-  <p class="eyebrow">Rank {{.Row.Rank}}</p>
+  <p class="eyebrow"><a href="{{$.GBase}}">{{$.Game.Name}}</a> · rank {{.Row.Rank}}</p>
   <h1>{{.Row.Name}}</h1>
   <div class="stats">
     <div><span class="num">{{.Row.Score}}</span><span class="label">points</span></div>
-    <div><span class="num">{{.Row.Solved}}<small>/{{.Row.Total}}</small></span><span class="label">challenges</span></div>
+    <div><span class="num">{{.Row.Solved}}</span><span class="label">challenges</span></div>
+    <div><span class="num">{{len .Bloods}}</span><span class="label">first bloods</span></div>
     <div><span class="num">{{clock .Row.LastSolve}}</span><span class="label">last solve</span></div>
   </div>
 </section>
+<div class="board-grid">
 <section class="card">
   <h2>By category</h2>
   <table class="cats">
     {{range .Categories}}
-    <tr><th scope="row">{{.Name}}</th><td><progress value="{{.Solved}}" max="{{.Total}}">{{.Solved}}/{{.Total}}</progress></td><td class="n">{{.Solved}}/{{.Total}}</td></tr>
+    <tr><th scope="row"><span class="swatch cat-{{.Index}}" aria-hidden="true"></span><a href="{{$.GBase}}cat/{{.Slug}}">{{.Name}}</a></th>
+        <td><progress value="{{.Solved}}" max="{{.Total}}">{{.Solved}}/{{.Total}}</progress></td><td class="n">{{.Solved}}/{{.Total}}</td></tr>
     {{end}}
   </table>
 </section>
 <section class="card">
-  <h2>Solved</h2>
-  {{if .Solves}}
-  <div class="table-wrap">
-  <table>
-    <thead><tr><th>Challenge</th><th class="hide-narrow">Category</th><th>Difficulty</th><th class="n">Points</th><th class="n">Time</th></tr></thead>
-    <tbody>
-    {{range .Solves}}<tr><td>{{.Challenge}}</td><td class="hide-narrow">{{.Category}}</td><td class="stars">{{stars .Difficulty}}</td><td class="n">{{.Points}}</td><td class="n">{{hm .SolvedAt}}</td></tr>{{end}}
-    </tbody>
+  <h2>By difficulty</h2>
+  <table class="cats">
+    {{range $.Spread}}<tr><th scope="row" class="stars">{{stars .Stars}}</th><td class="n">{{.N}}</td></tr>{{end}}
   </table>
-  </div>
+</section>
+</div>
+<section class="card">
+  <h2>Timeline</h2>
+  {{if .Solves}}
+  <ol class="timeline">
+    {{range .Solves}}<li{{if .FirstBlood}} class="first"{{end}}><time>{{hm .At}}</time>
+      <a href="{{$.GBase}}c/{{.Challenge.Key}}">{{.Challenge.Name}}</a>
+      <span class="stars">{{stars .Challenge.Difficulty}}</span>
+      <span class="muted">{{.Challenge.Category}} · {{.Challenge.Points}} points</span>
+      {{if .FirstBlood}}<span class="badge blood">first blood</span>{{end}}</li>{{end}}
+  </ol>
   {{else}}<p class="muted">Nothing solved yet.</p>{{end}}
 </section>
 {{end}}

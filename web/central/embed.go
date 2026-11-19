@@ -3,5 +3,5 @@ package centralweb
 
 import "embed"
 
-//go:embed *.html
+//go:embed *.html *.svg
 var FS embed.FS

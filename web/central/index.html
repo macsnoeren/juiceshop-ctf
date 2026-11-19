@@ -1,14 +1,22 @@
-{{define "index"}}{{template "chead" .Title}}
+{{define "index"}}{{template "head" .Title}}
 <body>
 <main>
-{{template "nav" .Title}}
-<section class="card">
-  <h1>Leaderboard</h1>
-  <p class="muted">OWASP Juice Shop. Points per challenge go by its difficulty; equal points are ranked by who got there first.</p>
-  {{template "board" .Board}}
-</section>
+{{template "nav" .}}
+<h1>Games</h1>
+{{if .Live}}
+<ul class="games">
+  {{range .Live}}<li class="card"><a href="{{path "/g/"}}{{.Slug}}/"><strong>{{.Name}}</strong></a>
+    <span class="badge{{if eq .State "running"}} live{{end}}">{{.State}}</span>
+    <span class="muted">{{.Participants}} participants, {{.Online}} online</span></li>{{end}}
+</ul>
+{{else}}<p class="muted">No game is running at the moment.</p>{{end}}
+{{if .Done}}
+<h2>Earlier games</h2>
+<ul class="games">
+  {{range .Done}}<li><a href="{{path "/g/"}}{{.Slug}}/">{{.Name}}</a> <span class="muted">{{.Participants}} participants</span></li>{{end}}
+</ul>
+{{end}}
 </main>
-<script src="{{path "/static/leaderboard.js"}}" defer></script>
 </body>
 </html>
 {{end}}

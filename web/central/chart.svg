@@ -1,0 +1,16 @@
+{{define "chart.svg"}}<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {{.W}} {{.H}}" role="img" aria-label="{{.Summary}}" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12">
+<title>{{.Summary}}</title>
+<style>
+.axis{stroke:#c9ced6;stroke-width:1}.grid{stroke:#e6e9ee;stroke-width:1}.t{fill:#5b6573}.l{fill:#1b1f24;font-weight:600}
+polyline{fill:none;stroke:var(--c);stroke-width:2.5;stroke-linejoin:round}tspan{fill:var(--c)}
+.s0{--c:#d9480f}.s1{--c:#1c7ed6}.s2{--c:#2b8a3e}.s3{--c:#ae3ec9}.s4{--c:#e67700}.s5{--c:#0c8599}.s6{--c:#c2255c}.s7{--c:#5c940d}.s8{--c:#4263eb}.s9{--c:#868e96}
+@media (prefers-color-scheme: dark){.axis{stroke:#3a414b}.grid{stroke:#262c33}.t{fill:#9aa3ae}.l{fill:#e8eaed}
+.s0{--c:#ff8c42}.s1{--c:#4dabf7}.s2{--c:#51cf66}.s3{--c:#da77f2}.s4{--c:#ffa94d}.s5{--c:#3bc9db}.s6{--c:#f783ac}.s7{--c:#a9e34b}.s8{--c:#748ffc}.s9{--c:#ced4da}}
+</style>
+{{if .Empty}}<text class="t" x="{{.Left}}" y="{{.Base}}">No points scored yet.</text>{{else}}
+{{range .YTicks}}<line class="grid" x1="{{$.Left}}" x2="{{$.Right}}" y1="{{.Pos}}" y2="{{.Pos}}"/><text class="t" x="{{$.Left}}" dx="-6" y="{{.Pos}}" dy="4" text-anchor="end">{{.Label}}</text>
+{{end}}<line class="axis" x1="{{.Left}}" x2="{{.Right}}" y1="{{.Base}}" y2="{{.Base}}"/>
+{{range .XTicks}}<text class="t" x="{{.Pos}}" y="{{$.Base}}" dy="18" text-anchor="middle">{{.Label}}</text>
+{{end}}{{range .Lines}}<polyline class="s{{.Index}}" points="{{.Points}}"/>
+{{end}}{{range .Lines}}<text class="l" x="{{.LX}}" y="{{.LY}}"><tspan class="s{{.Index}}">━</tspan> {{.Label}} {{.Score}}</text>
+{{end}}{{end}}</svg>{{end}}
