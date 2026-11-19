@@ -1,184 +1,109 @@
-# Juice Shop CTF: the whole thing on one machine (DESIGN.md §12).
+# Juice Shop CTF 1.1, the test setup (docs/VERSION-1-1.md §7; TASK-1-1 T1.1-52):
+# the central server and three students' VMs, each with its "Kali".
 #
-#   cd deploy/compose && docker compose up --build
-#   http://<ip>/ctf/          sign up            (access code: test1)
-#   http://<ip>/juiceshop/    the shop, after signing up
-#   http://<ip>/leaderboard/  the board          (/leaderboard/admin/: admin / admin)
+#   ./start.sh            build, start, wait until healthy, print the addresses
+#   ./stop.sh [--wipe]    stop (--wipe: and forget every game and VM)
 #
-#   docker compose --profile second up --build   adds instance 2 on :8080 (code test2)
+#            uplink (stands in for VirtualBox's NAT: the way to neo)
+#   ctf-central ────────┬──────────────┬──────────────┐
+#                      vm1            vm2            vm3        juiceshop-ctf, one container each
+#                       │ lab1         │ lab2         │ lab3    INTERNAL: stands in for host-only
+#                     kali1          kali2          kali3       curl, where the student attacks from
 #
-#               :80 / :8080
-#                    │
-#                  nginx ─────────────── ctf-front ───────────── ctf-status ── ctf-internal ── ctf-agent
-#                    │                       │                                                │   │
-#                    │                   ctf-central ◄──────── report (ctf-front) ────────────┘   │
-#                    └──── ctf-juice (internal) ──── juiceshop ──── webhook ──────────────────────┘
+# Each lab network has exactly one VM and its Kali on it, as in the lab: a
+# student's Kali reaches only that student's VM. The VMs are ALSO published
+# on 127.0.0.1 so you can look at them in a browser; that is a convenience of
+# this setup, not part of the lab.
 #
-# The networks are those of the node (DESIGN.md §4):
+# >>> /juiceshop-ctf/admin/ has no login of its own (on neo nginx guards it).
+# Here it is published on 127.0.0.1 only.
 #
-#   ctf-juice     INTERNAL: juiceshop, nginx, ctf-agent. Juice Shop is on this
-#                 network ONLY, so its SSRF reaches nginx and the agent's
-#                 webhook port and nothing else, and it has no route out.
-#   ctf-internal  INTERNAL: ctf-status ↔ ctf-agent's API.
-#   ctf-front     nginx ↔ ctf-status and ctf-central; the agent's way to the
-#                 central server (on a node: the internet).
-#
-# The agent binds each of its listeners to an ALIAS on one network
-# (ctf-agent-hook on ctf-juice, ctf-agent-api on ctf-internal), so its
-# internal API is not even listening where Juice Shop can reach it.
-#
-# Ports: CTF_HTTP_PORT (default 80) and CTF_HTTP_PORT_2 (default 8080) when
-# those are taken, e.g. `CTF_HTTP_PORT=8000 docker compose up`.
+# Ports: CTF_CENTRAL_PORT (8090), CTF_VM_PORT_1..3 (8091..8093).
 
-name: juiceshop-ctf
+# >>> A project name of its own. 1.0's setup was the project "juiceshop-ctf",
+# with services of the same names (ctf-central) and the same volume
+# (ctf-central-db): under that name, `up` replaced a running 1.0 central server
+# and `stop.sh --wipe` removed the 1.0 containers as orphans and deleted its
+# database. Do not change it back.
+name: juiceshop-ctf-lab
 
-x-hardened: &hardened
-  read_only: true
+x-vm: &vm
+  image: juiceshop-ctf:latest
+  pull_policy: never
+  # Exactly the run line of VERSION-1-1.md §3.1.
   cap_drop: [ALL]
+  cap_add: [SETUID, SETGID]
   security_opt: [no-new-privileges:true]
+  tmpfs: ["/juice-shop/logs:uid=65532,gid=65532,mode=0755"]
+  mem_limit: 768m
+  pids_limit: 256
+  restart: unless-stopped
+  depends_on: [ctf-central]
+
+x-vm-env: &vm-env
+  CTF_CENTRAL_URL: http://ctf-central:8080/juiceshop-ctf
+  CTF_TIMEZONE: Europe/Amsterdam
+  # Faster than production (30 s / 60 s / 5 min), so a test does not wait:
+  # an operator's remove reaches a VM with its next report.
+  POLL_INTERVAL: 5s
+  REPORT_INTERVAL: 10s
+  REPORT_BACKOFF_MAX: 10s
+
+x-kali: &kali
+  image: curlimages/curl:8.10.1
+  entrypoint: ["sleep", "infinity"]
+  init: true
   restart: unless-stopped
 
 services:
-  # --- instance 1 ----------------------------------------------------------
-
-  juiceshop:
-    # >>> Pinned. Upgrading means capturing the fixtures again
-    # (internal/juiceshop/testdata/README.md) and running tests/e2e.sh.
-    image: bkimminich/juice-shop:v20.3.0
-    environment:
-      # Only for the redirects Juice Shop builds itself; nginx strips the
-      # prefix on the way in (deploy/compose/nginx/ctf-instance.conf).
-      BASE_PATH: /juiceshop
-      SOLUTIONS_WEBHOOK: http://ctf-agent-hook:8081/webhook
-    networks: [ctf-juice]
-    # Not read_only: Juice Shop rewrites its SQLite file and uploads on start.
-    # No volume either: its state is disposable, the agent restores it (§6.2).
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    mem_limit: 768m
-    pids_limit: 256
-    restart: unless-stopped
-
-  ctf-agent:
-    build: { context: ../.., dockerfile: deploy/docker/Dockerfile.agent, args: { VERSION: "${VERSION:-dev}" } }
-    image: juiceshop-ctf-agent:latest
-    <<: *hardened
-    env_file: [{ path: env/agent-1.env, required: true }]
-    environment:
-      JUICESHOP_URL: http://juiceshop:3000
-      CTF_WEBHOOK_ADDR: ctf-agent-hook:8081
-      CTF_API_ADDR: ctf-agent-api:8082
-      # Faster than production (30s / 60s / 5m), so a test or a lab does not
-      # wait minutes: a reset from /admin/ rides on the answer to the next
-      # report, so REPORT_INTERVAL is also how long a reset takes to arrive.
-      POLL_INTERVAL: 5s
-      REPORT_INTERVAL: 15s
-      REPORT_BACKOFF_MAX: 10s
-    volumes: [ctf-agent-state:/var/lib/ctf-agent]
-    networks:
-      ctf-juice: { aliases: [ctf-agent-hook] }
-      ctf-internal: { aliases: [ctf-agent-api] }
-      ctf-front: {}
-    depends_on: [juiceshop]
-
-  ctf-status:
-    build: { context: ../.., dockerfile: deploy/docker/Dockerfile.status, args: { VERSION: "${VERSION:-dev}" } }
-    image: juiceshop-ctf-status:latest
-    <<: *hardened
-    env_file: [{ path: env/status-1.env, required: true }]
-    environment:
-      CTF_AGENT_URL: http://ctf-agent-api:8082
-      CTF_BASE_PATH: /ctf
-      CTF_JUICESHOP_PATH: /juiceshop/
-      CTF_LEADERBOARD_URL: /leaderboard/
-    networks: [ctf-internal, ctf-front]
-    depends_on: [ctf-agent]
-
-  # --- the central server --------------------------------------------------
-
   ctf-central:
     build: { context: ../.., dockerfile: deploy/docker/Dockerfile.central, args: { VERSION: "${VERSION:-dev}" } }
     image: juiceshop-ctf-central:latest
-    <<: *hardened
-    env_file: [{ path: env/central.env, required: true }]
-    environment:
-      CTF_BASE_PATH: /leaderboard
-      CTF_DB_PATH: /data/central.db
-    volumes: [ctf-central-db:/data]
-    tmpfs: [/tmp]
-    networks: [ctf-front]
-
-  nginx:
-    image: nginx:1.29-alpine
-    ports:
-      - "${CTF_HTTP_PORT:-80}:80"
-      - "${CTF_HTTP_PORT_2:-8080}:8080"
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./nginx/ctf-instance.conf:/etc/nginx/snippets/ctf-instance.conf:ro
-      - ./nginx/ctf-leaderboard.conf:/etc/nginx/snippets/ctf-leaderboard.conf:ro
-      - ./nginx/ctf-admin.htpasswd:/etc/nginx/ctf-admin.htpasswd:ro
-    networks: [ctf-front, ctf-juice, ctf-juice-2]
-    depends_on: [ctf-status, ctf-central]
-    restart: unless-stopped
-
-  # --- instance 2: docker compose --profile second up ------------------------
-
-  juiceshop-2:
-    profiles: [second]
-    image: bkimminich/juice-shop:v20.3.0
-    environment:
-      BASE_PATH: /juiceshop
-      SOLUTIONS_WEBHOOK: http://ctf-agent-2-hook:8081/webhook
-    networks: [ctf-juice-2]
+    read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    mem_limit: 768m
-    pids_limit: 256
+    environment:
+      CTF_BASE_PATH: /juiceshop-ctf
+    volumes: [ctf-central-db:/data]
+    tmpfs: [/tmp]
+    networks: [uplink]
+    ports: ["127.0.0.1:${CTF_CENTRAL_PORT:-8090}:8080"]
     restart: unless-stopped
 
-  ctf-agent-2:
-    profiles: [second]
-    build: { context: ../.., dockerfile: deploy/docker/Dockerfile.agent, args: { VERSION: "${VERSION:-dev}" } }
-    image: juiceshop-ctf-agent:latest
-    <<: *hardened
-    env_file: [{ path: env/agent-2.env, required: true }]
-    environment:
-      JUICESHOP_URL: http://juiceshop-2:3000
-      CTF_WEBHOOK_ADDR: ctf-agent-2-hook:8081
-      CTF_API_ADDR: ctf-agent-2-api:8082
-      POLL_INTERVAL: 5s
-      REPORT_INTERVAL: 15s
-      REPORT_BACKOFF_MAX: 10s
-    volumes: [ctf-agent-state-2:/var/lib/ctf-agent]
-    networks:
-      ctf-juice-2: { aliases: [ctf-agent-2-hook] }
-      ctf-internal-2: { aliases: [ctf-agent-2-api] }
-      ctf-front: {}
-    depends_on: [juiceshop-2]
+  vm1:
+    <<: *vm
+    build: { context: ../.., dockerfile: deploy/docker/Dockerfile.node, args: { VERSION: "${VERSION:-dev}" } }
+    pull_policy: build
+    environment: *vm-env
+    volumes: [vm1:/var/lib/ctf]
+    networks: [uplink, lab1]
+    ports: ["127.0.0.1:${CTF_VM_PORT_1:-8091}:80"]
+  kali1: { <<: *kali, networks: [lab1] }
 
-  ctf-status-2:
-    profiles: [second]
-    build: { context: ../.., dockerfile: deploy/docker/Dockerfile.status, args: { VERSION: "${VERSION:-dev}" } }
-    image: juiceshop-ctf-status:latest
-    <<: *hardened
-    env_file: [{ path: env/status-2.env, required: true }]
-    environment:
-      CTF_AGENT_URL: http://ctf-agent-2-api:8082
-      CTF_BASE_PATH: /ctf
-      CTF_JUICESHOP_PATH: /juiceshop/
-      CTF_LEADERBOARD_URL: /leaderboard/
-    networks: [ctf-internal-2, ctf-front]
-    depends_on: [ctf-agent-2]
+  vm2:
+    <<: *vm
+    environment: *vm-env
+    volumes: [vm2:/var/lib/ctf]
+    networks: [uplink, lab2]
+    ports: ["127.0.0.1:${CTF_VM_PORT_2:-8092}:80"]
+  kali2: { <<: *kali, networks: [lab2] }
+
+  vm3:
+    <<: *vm
+    environment: *vm-env
+    volumes: [vm3:/var/lib/ctf]
+    networks: [uplink, lab3]
+    ports: ["127.0.0.1:${CTF_VM_PORT_3:-8093}:80"]
+  kali3: { <<: *kali, networks: [lab3] }
 
 networks:
-  ctf-front: {}
-  ctf-juice: { internal: true }
-  ctf-internal: { internal: true }
-  ctf-juice-2: { internal: true }
-  ctf-internal-2: { internal: true }
+  uplink: {}
+  lab1: { internal: true }
+  lab2: { internal: true }
+  lab3: { internal: true }
 
 volumes:
-  ctf-agent-state: {}
-  ctf-agent-state-2: {}
   ctf-central-db: {}
+  vm1: {}
+  vm2: {}
+  vm3: {}

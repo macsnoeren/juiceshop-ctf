@@ -50,8 +50,8 @@ status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 # as UID: run a node.js snippet inside the container as that user
 as() { local u="$1"; shift; docker exec -u "$u" "$C" /nodejs/bin/node -e "$1"; }
 healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' "$C")" = healthy ]; }
-is_shop() { curl -s "$B/juiceshop/" | grep -q '<title>OWASP Juice Shop'; }
-page_has() { curl -s "$B/ctf/" | grep -qF "$1"; }
+is_shop() { local o; o="$(curl -s "$B/juiceshop/")"; grep -q '<title>OWASP Juice Shop' <<<"$o"; }
+page_has() { local o; o="$(curl -s "$B/ctf/")"; grep -qF -- "$1" <<<"$o"; }
 unsolved() { ! solved "$1"; }
 nothing_solved() {
     curl -s "$B/juiceshop/api/Challenges" | python3 -c '

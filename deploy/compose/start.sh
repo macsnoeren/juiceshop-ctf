@@ -1,54 +1,43 @@
 #!/usr/bin/env bash
 #
-# start.sh — start the test setup (docker-compose.yml next to this file).
+# start.sh — start the test setup (docker-compose.yml next to this file):
+# the central server and three students' VMs, each with its Kali.
 #
-#   ./start.sh            instance 1 + central server, on :80
-#   ./start.sh --second   plus instance 2, on :8080
+#   ./start.sh
 #
-# Builds the three images from the working tree first, so what runs is what is
-# on disk now — the same rule as the node build. Waits until every container
-# with a healthcheck is healthy, then prints where to go.
+# Builds the two images from the working tree first, so what runs is what is
+# on disk now, versioned from git. Waits until every container with a
+# healthcheck is healthy, then prints where to go.
 #
-# Ports taken? CTF_HTTP_PORT=8000 CTF_HTTP_PORT_2=8001 ./start.sh
+# Ports taken? CTF_CENTRAL_PORT=9090 CTF_VM_PORT_1=9091 ... ./start.sh
 # Stopping: ./stop.sh (keeps the data) or ./stop.sh --wipe (forgets it).
 
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+case "${1:-}" in
+  "") ;;
+  -h|--help) sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
+esac
 
 # The images call themselves what git calls this commit (Makefile).
 export VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
+docker compose build
+docker compose up -d --wait --wait-timeout 240
 
-profile=()
-case "${1:-}" in
-  "")       ;;
-  --second) profile=(--profile second) ;;
-  -h|--help) sed -n '3,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-  *)        echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
-esac
+c="${CTF_CENTRAL_PORT:-8090}"
+cat <<EOF2
 
-docker compose "${profile[@]}" up -d --build --wait --wait-timeout 180
+Juice Shop CTF $VERSION is running.
 
-# The first address of this machine, for a browser on another one. Falls back
-# to localhost where 'hostname -I' does not exist (macOS).
-ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-ip="${ip:-localhost}"
-p1="${CTF_HTTP_PORT:-80}"
-p2="${CTF_HTTP_PORT_2:-8080}"
-url() { [[ "$2" == 80 ]] && printf 'http://%s' "$1" || printf 'http://%s:%s' "$1" "$2"; }
+  central server   http://127.0.0.1:$c/juiceshop-ctf/            the games and their boards
+  admin            http://127.0.0.1:$c/juiceshop-ctf/admin/      make a game; its join code is shown once
+  VM 1             http://127.0.0.1:${CTF_VM_PORT_1:-8091}/ctf/
+  VM 2             http://127.0.0.1:${CTF_VM_PORT_2:-8092}/ctf/
+  VM 3             http://127.0.0.1:${CTF_VM_PORT_3:-8093}/ctf/
 
-cat <<EOF
+  As a student, from "Kali":  docker compose exec kali1 curl -s http://vm1/ctf/
+  The VMs know the central server as http://ctf-central:8080/juiceshop-ctf.
 
-Juice Shop CTF is running.
-
-  sign up      $(url "${ip}" "${p1}")/ctf/          access code: test1
-  the shop     $(url "${ip}" "${p1}")/juiceshop/    after signing up
-  leaderboard  $(url "${ip}" "${p1}")/leaderboard/  also /leaderboard/beamer
-  admin        $(url "${ip}" "${p1}")/leaderboard/admin/   admin / admin
-EOF
-if [[ ${#profile[@]} -gt 0 ]]; then
-  echo "  instance 2   $(url "${ip}" "${p2}")/ctf/          access code: test2"
-fi
-cat <<EOF
-
-Logs: docker compose logs -f ctf-agent     Stop: ./stop.sh
-EOF
+Logs: docker compose logs -f vm1     Stop: ./stop.sh
+EOF2

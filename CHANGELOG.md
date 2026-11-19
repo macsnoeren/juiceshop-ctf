@@ -6,8 +6,51 @@ What the first student lab asked for; the reasoning is in
 [docs/VERSION-1-1.md](docs/VERSION-1-1.md), the steps in
 [docs/TASK-1-1.md](docs/TASK-1-1.md).
 
-- Repository in the layout of VERSION-1-1.md §7: `internal/{node,central,shared,juiceshop}`,
-  `web/{node,central,static}`, `deploy/`, `docs/`; a Makefile; versions from `git describe`.
+The answer to the first student lab (F1–F11 in VERSION-1-1.md §1).
+
+**The central server leads**
+- Games, made in admin, each with a join code (shown once, stored hashed), a
+  state (draft → open → running → closed), an optional time window, its own
+  scoring and board options (hidden, initials). Any number at the same time.
+- A token per participant, issued when the student joins. A report touches
+  only its own participant: thirty VMs from one image no longer push each
+  other off the board (F1, F6).
+- Admin: the game page with every participant's state, version, cheat score
+  and flags; remove, hide, end, clear and delete, confirmed by typing the
+  game's name; the event feed with filters and CSV (F3, F4, F5).
+- Flags for what an honest VM never sends: a missing prerequisite, a burst,
+  solves before the join or after the end, two Juice Shop boots on one
+  token, a high cheat score. Shown, never acted on.
+- Everything in SQLite; `CTF_SEED`, `CTF_TITLE`, `CTF_TIMEZONE` gone (F9). The
+  1.0 database migrates: every student of the lab is back, in a closed game "1.0".
+- The challenge catalogue is embedded: a report says which challenges, never
+  what they are worth.
+- Protocol v2 (`/api/v2/join`, `/report`, `/leave`); a 1.0 agent gets 410 and an event.
+
+**One container per VM**
+- `juiceshop-ctf`: Juice Shop 20.3.0 and ctf-node in one image, with a keeper
+  as PID 1 that alone holds SETUID/SETGID; ctf-node runs as 10001 with no
+  capabilities, Juice Shop as 65532, and code in Juice Shop cannot read the
+  token or signal ctf-node.
+- ctf-node replaces ctf-agent and ctf-status: no gate (the lab network keeps
+  others out, nothing depends on a cookie, F2); `CTF_GATE=session` with a
+  personal return code where a VM is reachable by others.
+- Join online, queued while the central server is unreachable, or with no
+  central server at all; the central server can be changed on the page
+  before joining (F10). Everything remembered in `node.db` (F11).
+- *Restart Juice Shop* and *Forget* on the student's page; the operator's
+  *remove* does what *Forget* does.
+
+**The board** (F8)
+- Per game at `/g/<slug>/`: podium, category bars, live ticker with first
+  blood (a mark, no points; by time of receipt), score over time, pages per
+  participant, challenge and category; beamer mode with countdown and final
+  result.
+
+**Repository** (F7)
+- The layout of VERSION-1-1.md §7, a Makefile, versions from `git describe`,
+  the test setup as three VMs with their Kalis, `tests/e2e.sh` and
+  `tests/image.sh`, OPERATIONS.md, PROTOCOL.md and the student sheet.
 
 ## 1.0.0 — 2026-11-19
 

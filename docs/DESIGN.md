@@ -1,5 +1,13 @@
 # Juice Shop CTF
 
+> **Version 1.1.** This is the design of 1.0. Version 1.1 changes it where
+> the first student lab showed it had to; the reasoning is in
+> [VERSION-1-1.md](VERSION-1-1.md), the protocol in [PROTOCOL.md](PROTOCOL.md),
+> and running a lab in [OPERATIONS.md](OPERATIONS.md). Sections marked
+> **1.1** below are superseded; everything else — the watcher (§6), the
+> restore (§6.2), the baseline (§6.2a), the merge rules (§8.2) and scoring
+> (§8.3) — is still how it works.
+
 Design document for `juiceshop-ctf`: a capture-the-flag on OWASP Juice Shop in
 which every student attacks an instance of their own, and a central
 leaderboard shows, live and by name, who has solved what.
@@ -125,6 +133,8 @@ so that image can also be `scratch`.
 
 ## 3. One student, one instance
 
+> **1.1:** still one Juice Shop per student, but as a VM of their own in VirtualBox next to Kali, all made from one image; a VM gets its identity when the student joins (VERSION-1-1.md §2, §3).
+
 Juice Shop keeps **one** progress per running process: its challenges table
 has a single `solved` column, not one per user. Two students on one instance
 share a score board, and nobody can tell who solved what. So a solve belongs
@@ -146,6 +156,8 @@ is issued for.
 ---
 
 ## 4. Keeping the target in its cage
+
+> **1.1:** Juice Shop and ctf-node share one container; the cage is now two users inside it (65532 and 10001) and a keeper that alone holds privilege (VERSION-1-1.md §3.1).
 
 Juice Shop is **meant** to be broken into, and some of its challenges turn the
 server into the student's tool:
@@ -208,6 +220,8 @@ idles at around 300–500 MB), and a `pids` limit.
 ---
 
 ## 5. The door: sign-up is the access gate
+
+> **1.1:** no door in the lab: the host-only network keeps others out. The optional gate is `CTF_GATE=session` with a personal return code (VERSION-1-1.md §4.2).
 
 ### 5.1 Why there must be a door
 
@@ -406,6 +420,8 @@ that they cannot solve again.
 
 ### 6.3 The agent's state
 
+> **1.1:** `node.db` (SQLite) instead of `state.json`; a 1.0 state file is imported once, without its registration (VERSION-1-1.md §4.1, §8).
+
 One JSON file on the volume `ctf-agent-state`, `/var/lib/ctf-agent/state.json`,
 written as temp file + `fsync` + `rename`, so a crash leaves the old file or
 the new one and never half of one:
@@ -439,6 +455,8 @@ and no locking.
 ---
 
 ## 7. Agent → central: the report
+
+> **1.1:** protocol v2 — join, report with a participant token, leave — in [PROTOCOL.md](PROTOCOL.md). Still a full snapshot every minute.
 
 ### 7.1 Push, full snapshot, every minute
 
@@ -520,6 +538,8 @@ instead of once per minute.
 ---
 
 ## 8. The central server
+
+> **1.1:** games, participants per game, commands per participant, events and flags; first blood and ties by time of receipt; admin as in OPERATIONS.md (VERSION-1-1.md §5, §6).
 
 ### 8.1 Data model (SQLite, volume `ctf-central-db`)
 
@@ -607,6 +627,8 @@ them out) but against a page in the operator's own browser.
 
 ## 9. Configuration and secrets
 
+> **1.1:** neither program has a secret any more. ctf-central reads only its database path, listen address, base path and log level; ctf-node only the central server's address and timings (their `main.go`).
+
 Nothing secret is in an image, a build arg, git or ignition. On a node, the env
 files live in `/etc/jmnl/juiceshop-ctf/` (mode 0700), arrive through the
 bundle from `nodes/<node>/keys/juiceshop-ctf/`, and are loaded with
@@ -685,6 +707,8 @@ down opens for the scanners too (§5.1).
 
 ## 11. Repository layout
 
+> **1.1:** see the README and VERSION-1-1.md §7.
+
 ```
 juiceshop-ctf/
   DESIGN.md                 this file
@@ -723,6 +747,8 @@ way as drumschool's and intento's.
 ---
 
 ## 12. Testing it locally
+
+> **1.1:** `make run` and `tests/e2e.sh` (deploy/compose/README.md).
 
 `docker/docker-compose.yml` brings up the whole thing on one machine, behind
 one nginx (`nginx:1.29-alpine`, `docker/nginx/default.conf`) on port 80,
@@ -770,6 +796,8 @@ Tests:
 ---
 
 ## 13. Into `jmnl-external-servers`
+
+> **1.1:** neo runs ctf-central without `CTF_SEED`; `cybersecurity-1` is the VM image with `juiceshop-ctf` and `logging-proxy` (decision D9, deploy/virtualbox/README.md).
 
 The usual checklist from that repository's `CLAUDE.md`, applied to both sides:
 
