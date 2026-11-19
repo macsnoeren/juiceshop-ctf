@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	protocol "github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol/v1"
 	"github.com/macsnoeren/juiceshop-ctf/internal/shared/version"
 )
 

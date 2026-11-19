@@ -30,7 +30,7 @@ import (
 	"github.com/macsnoeren/juiceshop-ctf/internal/node/agent"
 	"github.com/macsnoeren/juiceshop-ctf/internal/node/gate"
 	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	protocol "github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol/v1"
 	"github.com/macsnoeren/juiceshop-ctf/web/node"
 	"github.com/macsnoeren/juiceshop-ctf/web/static"
 )

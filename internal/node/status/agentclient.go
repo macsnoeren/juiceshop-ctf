@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/node/agent"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	protocol "github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol/v1"
 )
 
 // AgentClient is what the status page needs from ctf-agent's internal API.

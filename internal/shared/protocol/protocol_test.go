@@ -1,124 +1,243 @@
 package protocol
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
-	"reflect"
+	"math"
+	"math/rand/v2"
 	"strings"
 	"testing"
 	"time"
 )
 
-// exampleReport is the example of DESIGN.md §7.2. If this test fails after a
-// change to the format, update the design document in the same commit.
-const exampleReport = `{
-  "protocol": 1,
-  "instance": "cybersecurity-1",
-  "sent_at": "2026-11-18T09:15:00Z",
-  "agent_version": "0.1.0",
-  "juiceshop": {"version": "20.3.0", "reachable": true, "restore_failed": false},
-  "registration": {"id": "9f2c4e1a0b3d5f6e7a8b9c0d1e2f3a4b", "name": "Sanne de Vries", "registered_at": "2026-11-18T09:01:12Z"},
-  "challenges": [
-    {"key": "scoreBoardChallenge", "name": "Score Board", "category": "Miscellaneous",
-     "difficulty": 1, "disabled": false, "solved_at": "2026-11-18T09:14:03Z", "cheat": 0.0},
-    {"key": "loginAdminChallenge", "name": "Login Admin", "category": "Injection",
-     "difficulty": 2, "disabled": false, "solved_at": null}
-  ],
-  "commands_applied": ["c-17"]
-}`
+// The examples of VERSION-1-1.md §2.2 and docs/PROTOCOL.md, as the programs
+// write them. If one of these stops round-tripping, a field was renamed, and
+// every VM in the field still sends the old name.
+var examples = map[string]struct {
+	json string
+	into any
+}{
+	"join": {`{"protocol":2,"name":"Zoë","code":"4ffpq7tq9f","joined_at":"2026-11-19T09:00:00Z","node":{"uid":"0123456789abcdef0123456789abcdef","version":"v1.1.0","juiceshop":"20.3.0"}}`, &JoinRequest{}},
+	"join-answer": {`{"participant":41,"token":"ctfp_00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff","name":"Zoë","game":{"id":7,"name":"Class 2A","slug":"class-2a","state":"running","ends_at":"2026-11-19T11:00:00Z"},"board":"https://neo.jmnl.nl/juiceshop-ctf/g/class-2a/"}`, &JoinResponse{}},
+	"error":       {`{"error":"unknown join code"}`, &ErrorResponse{}},
+	"report":      {`{"protocol":2,"sent_at":"2026-11-19T09:30:00Z","boot":"2026-11-19T08:59:12.431Z","node":{"uid":"0123456789abcdef0123456789abcdef","version":"v1.1.0","juiceshop":"20.3.0"},"juiceshop_reachable":true,"restore_failed":false,"solves":[{"key":"scoreBoardChallenge","solved_at":"2026-11-19T09:05:00Z","cheat":0.1},{"key":"directoryListingChallenge","solved_at":"2026-11-19T09:20:00Z"}],"commands_applied":["c-1a2b3c"]}`, &Report{}},
+	"report-answer": {`{"standing":{"rank":2,"of":18,"score":1350},"game":{"state":"running","ends_at":"2026-11-19T11:00:00Z"},"commands":[{"id":"c-1a2b3c","type":"forget"}]}`, &ReportResponse{}},
+	"leave":         {`{"protocol":2,"reason":"forget"}`, &LeaveRequest{}},
+}
 
-func decode(t *testing.T, s string) Report {
-	t.Helper()
+func TestExamplesRoundTrip(t *testing.T) {
+	for name, ex := range examples {
+		if err := json.Unmarshal([]byte(ex.json), ex.into); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		out, err := json.Marshal(ex.into)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(out, []byte(ex.json)) {
+			t.Errorf("%s does not round-trip:\n got %s\nwant %s", name, out, ex.json)
+		}
+	}
+}
+
+func validReport() Report {
 	var r Report
-	if err := json.Unmarshal([]byte(s), &r); err != nil {
-		t.Fatal(err)
+	if err := json.Unmarshal([]byte(examples["report"].json), &r); err != nil {
+		panic(err)
 	}
 	return r
 }
 
-func TestExampleRoundTrip(t *testing.T) {
-	r := decode(t, exampleReport)
+func validJoin() JoinRequest {
+	var j JoinRequest
+	if err := json.Unmarshal([]byte(examples["join"].json), &j); err != nil {
+		panic(err)
+	}
+	return j
+}
+
+func TestExamplesAreValid(t *testing.T) {
+	r := validReport()
 	if err := r.Validate(); err != nil {
-		t.Fatalf("example does not validate: %v", err)
+		t.Error("report:", err)
 	}
-	out, err := json.Marshal(r)
-	if err != nil {
-		t.Fatal(err)
+	j := validJoin()
+	if err := j.Normalize(); err != nil {
+		t.Error("join:", err)
 	}
-	var a, b any
-	json.Unmarshal([]byte(exampleReport), &a)
-	json.Unmarshal(out, &b)
-	if !reflect.DeepEqual(a, b) {
-		t.Errorf("round trip differs:\nwant %v\ngot  %v", a, b)
+	l := LeaveRequest{Protocol: 2, Reason: LeaveForget}
+	if err := l.Validate(); err != nil {
+		t.Error("leave:", err)
 	}
 }
 
-func TestNullRegistrationRoundTrip(t *testing.T) {
-	r := decode(t, exampleReport)
-	r.Registration = nil
-	out, _ := json.Marshal(r)
-	if !strings.Contains(string(out), `"registration":null`) {
-		t.Errorf("registration not encoded as null: %s", out)
-	}
-	back := decode(t, string(out))
-	if back.Registration != nil {
-		t.Error("null registration came back non-nil")
-	}
-	if err := back.Validate(); err != nil {
-		t.Errorf("report without registration must validate: %v", err)
-	}
-}
-
-func TestValidateRejects(t *testing.T) {
-	tests := []struct {
-		name   string
-		mutate func(*Report)
+func TestReportValidation(t *testing.T) {
+	f := func(v float64) *float64 { return &v }
+	cases := []struct {
+		name string
+		edit func(*Report)
 	}{
-		{"unknown protocol", func(r *Report) { r.Protocol = 2 }},
-		{"instance with capitals", func(r *Report) { r.Instance = "Cyber-1" }},
-		{"instance with slash", func(r *Report) { r.Instance = "a/b" }},
+		{"protocol 1", func(r *Report) { r.Protocol = 1 }},
 		{"no sent_at", func(r *Report) { r.SentAt = time.Time{} }},
-		{"bad registration id", func(r *Report) { r.Registration.ID = "xyz" }},
-		{"bad name", func(r *Report) { r.Registration.Name = "<b>" }},
-		{"unnormalised name", func(r *Report) { r.Registration.Name = "Sanne  de Vries" }},
-		{"no registered_at", func(r *Report) { r.Registration.RegisteredAt = time.Time{} }},
-		{"difficulty 0", func(r *Report) { r.Challenges[0].Difficulty = 0 }},
-		{"difficulty 7", func(r *Report) { r.Challenges[0].Difficulty = 7 }},
-		{"bad key", func(r *Report) { r.Challenges[0].Key = "a b" }},
-		{"duplicate key", func(r *Report) { r.Challenges[1].Key = r.Challenges[0].Key }},
-		{"empty name", func(r *Report) { r.Challenges[0].Name = "" }},
-		{"too many challenges", func(r *Report) {
-			c := r.Challenges[0]
-			r.Challenges = nil
-			for i := 0; i <= MaxChallenges; i++ {
-				c.Key = "k" + strings.Repeat("x", i%70) + string(rune('a'+i%26)) + string(rune('a'+i/26%26))
-				r.Challenges = append(r.Challenges, c)
+		{"node uid", func(r *Report) { r.Node.UID = "cybersecurity-1" }},
+		{"long version", func(r *Report) { r.Node.Version = strings.Repeat("v", 65) }},
+		{"long boot", func(r *Report) { r.Boot = strings.Repeat("b", 65) }},
+		{"empty key", func(r *Report) { r.Solves[0].Key = "" }},
+		{"key with a quote", func(r *Report) { r.Solves[0].Key = `a"b` }},
+		{"duplicate key", func(r *Report) { r.Solves[1].Key = r.Solves[0].Key }},
+		{"no solved_at", func(r *Report) { r.Solves[0].SolvedAt = time.Time{} }},
+		{"cheat above 1", func(r *Report) { r.Solves[0].Cheat = f(1.5) }},
+		{"cheat below 0", func(r *Report) { r.Solves[0].Cheat = f(-0.1) }},
+		{"cheat NaN", func(r *Report) { r.Solves[0].Cheat = f(math.NaN()) }},
+		{"501 solves", func(r *Report) {
+			r.Solves = nil
+			for i := range MaxSolves + 1 {
+				r.Solves = append(r.Solves, Solve{Key: "k" + strings.Repeat("x", i%70) + string(rune('a'+i%26)) + itoa(i), SolvedAt: r.SentAt})
 			}
 		}},
-		{"bad command id", func(r *Report) { r.CommandsApplied = []string{"a b"} }},
+		{"command id", func(r *Report) { r.CommandsApplied = []string{"bad id!"} }},
+		{"too many commands", func(r *Report) { r.CommandsApplied = make([]string, MaxCommandsApplied+1) }},
 	}
-	for _, tt := range tests {
-		r := decode(t, exampleReport)
-		tt.mutate(&r)
+	for _, c := range cases {
+		r := validReport()
+		c.edit(&r)
 		if err := r.Validate(); !errors.Is(err, ErrInvalid) {
-			t.Errorf("%s: Validate() = %v, want ErrInvalid", tt.name, err)
+			t.Errorf("%s: got %v, want ErrInvalid", c.name, err)
+		}
+	}
+	r := validReport()
+	r.Solves = append(r.Solves, Solve{Key: "edgeCheat", SolvedAt: r.SentAt, Cheat: f(1)})
+	if err := r.Validate(); err != nil {
+		t.Errorf("a cheat score of exactly 1 is valid: %v", err)
+	}
+}
+
+func itoa(i int) string {
+	const d = "0123456789"
+	if i < 10 {
+		return d[i : i+1]
+	}
+	return itoa(i/10) + d[i%10:i%10+1]
+}
+
+func TestJoinValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		edit func(*JoinRequest)
+	}{
+		{"protocol 1", func(j *JoinRequest) { j.Protocol = 1 }},
+		{"name too short", func(j *JoinRequest) { j.Name = "Z" }},
+		{"name with markup", func(j *JoinRequest) { j.Name = "<b>Zoë</b>" }},
+		{"code too short", func(j *JoinRequest) { j.Code = "4ffpq7tq9" }},
+		{"code too long", func(j *JoinRequest) { j.Code = "4ffpq7tq9fa" }},
+		{"code with an o", func(j *JoinRequest) { j.Code = "offpq7tq9f" }},
+		{"code with a 1", func(j *JoinRequest) { j.Code = "1ffpq7tq9f" }},
+		{"node uid", func(j *JoinRequest) { j.Node.UID = "" }},
+	}
+	for _, c := range cases {
+		j := validJoin()
+		c.edit(&j)
+		if err := j.Normalize(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: got %v, want ErrInvalid", c.name, err)
+		}
+	}
+	j := validJoin()
+	j.Name, j.Code = "  Zoë   de  Vries ", "4FFPQ-7TQ9F"
+	if err := j.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if j.Name != "Zoë de Vries" || j.Code != "4ffpq7tq9f" {
+		t.Errorf("normalised to %q / %q", j.Name, j.Code)
+	}
+}
+
+func TestLeaveValidation(t *testing.T) {
+	for _, l := range []LeaveRequest{{Protocol: 1, Reason: LeaveForget}, {Protocol: 2, Reason: "bored"}, {Protocol: 2}} {
+		if err := l.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%+v: got %v", l, err)
 		}
 	}
 }
 
-func TestUnknownCommandIsIgnored(t *testing.T) {
-	var resp Response
-	err := json.Unmarshal([]byte(`{"ok":true,"commands":[{"id":"c-1","type":"reset_registration"},{"id":"c-2","type":"self_destruct"}]}`), &resp)
-	if err != nil {
-		t.Fatalf("a response with an unknown command must decode: %v", err)
-	}
-	var known []string
-	for _, c := range resp.Commands {
-		if c.Known() {
-			known = append(known, c.ID)
+// TestJoinCodesAreUnbiased draws 10 000 codes from a SEEDED source, so the
+// test is deterministic: it checks the mapping from bytes to characters,
+// which is where a bias would come from, not the quality of crypto/rand.
+func TestJoinCodesAreUnbiased(t *testing.T) {
+	src := rand.NewChaCha8([32]byte{1, 2, 3})
+	counts := map[rune]int{}
+	total := 0
+	for range 10000 {
+		c := randomCode(src, JoinCodeLength)
+		if _, ok := NormalizeJoinCode(c); !ok {
+			t.Fatalf("generated code %q is not a valid code", c)
+		}
+		for _, r := range c {
+			counts[r]++
+			total++
 		}
 	}
-	if !reflect.DeepEqual(known, []string{"c-1"}) {
-		t.Errorf("known commands = %v, want [c-1]", known)
+	if len(counts) != len(JoinCodeAlphabet) {
+		t.Fatalf("%d distinct characters, want %d", len(counts), len(JoinCodeAlphabet))
+	}
+	want := float64(total) / float64(len(JoinCodeAlphabet))
+	for r, n := range counts {
+		if !strings.ContainsRune(JoinCodeAlphabet, r) {
+			t.Errorf("character %q is not in the alphabet", r)
+		}
+		if dev := math.Abs(float64(n)-want) / want; dev > 0.05 {
+			t.Errorf("%q drawn %d times, %.1f %% off the expected %.0f", r, n, dev*100, want)
+		}
+	}
+}
+
+// TestModuloMappingWouldBeCaught shows the test above is not vacuous: the
+// naive mapping b % 31 fails it.
+func TestModuloMappingWouldBeCaught(t *testing.T) {
+	src := rand.NewChaCha8([32]byte{1, 2, 3})
+	counts := map[byte]int{}
+	buf := make([]byte, 100000)
+	src.Read(buf)
+	for _, b := range buf {
+		counts[JoinCodeAlphabet[int(b)%31]]++
+	}
+	want := float64(len(buf)) / 31
+	worst := 0.0
+	for _, n := range counts {
+		worst = max(worst, math.Abs(float64(n)-want)/want)
+	}
+	if worst <= 0.05 {
+		t.Errorf("the biased mapping was only %.1f %% off; the check would not catch it", worst*100)
+	}
+}
+
+func TestTokensAndHashes(t *testing.T) {
+	tok := NewParticipantToken()
+	if !ValidParticipantToken(tok) {
+		t.Fatalf("token %q has the wrong shape", tok)
+	}
+	if ValidParticipantToken("ctf_" + tok[5:]) || ValidParticipantToken(tok+"0") {
+		t.Error("a token of the wrong shape was accepted")
+	}
+	for _, s := range []string{tok, NewJoinCode(), NewReturnCode(), "x"} {
+		h := Hash(s)
+		if h == s || len(h) != 64 {
+			t.Errorf("hash of %q is %q", s, h)
+		}
+		if !HashMatches(s, h) || HashMatches(s+"x", h) || HashMatches("", Hash("")) {
+			t.Errorf("HashMatches is wrong for %q", s)
+		}
+	}
+	if NewParticipantToken() == tok {
+		t.Error("two tokens are equal")
+	}
+	if got := FormatCode("4ffpq7tq9f"); got != "4ffpq-7tq9f" {
+		t.Errorf("FormatCode = %q", got)
+	}
+	if c, ok := NormalizeJoinCode(FormatCode("4ffpq7tq9f")); !ok || c != "4ffpq7tq9f" {
+		t.Error("a formatted code does not normalise back")
+	}
+	if !ValidNodeUID(NewNodeUID()) {
+		t.Error("NewNodeUID makes invalid uids")
 	}
 }

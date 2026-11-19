@@ -18,7 +18,7 @@ import (
 	"github.com/macsnoeren/juiceshop-ctf/internal/node/agent"
 	"github.com/macsnoeren/juiceshop-ctf/internal/node/gate"
 	"github.com/macsnoeren/juiceshop-ctf/internal/shared/names"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	protocol "github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol/v1"
 )
 
 type fakeAgent struct {

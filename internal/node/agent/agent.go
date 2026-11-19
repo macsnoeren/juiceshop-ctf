@@ -29,7 +29,7 @@ import (
 	"github.com/macsnoeren/juiceshop-ctf/internal/juiceshop"
 	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
 	"github.com/macsnoeren/juiceshop-ctf/internal/shared/names"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	protocol "github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol/v1"
 )
 
 // Shop is the part of the Juice Shop client the agent uses; tests fake it.

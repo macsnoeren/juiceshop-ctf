@@ -10,7 +10,7 @@ import (
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/juiceshop"
 	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	protocol "github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol/v1"
 )
 
 // StateVersion is the version of the state file this agent writes.

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/juiceshop"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	protocol "github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol/v1"
 )
 
 func TestSaveLoadRoundTrip(t *testing.T) {
