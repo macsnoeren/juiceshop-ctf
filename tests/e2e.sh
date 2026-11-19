@@ -2,7 +2,7 @@
 # e2e.sh: the whole CTF in Docker, end to end (DESIGN.md §12; TASKS.md T28,
 # T30-T32).
 #
-# Brings up docker/docker-compose.yml with BOTH instances under its own
+# Brings up deploy/compose/docker-compose.yml with BOTH instances under its own
 # project name and ports (so it never touches a setup you have running), then
 # checks, in order:
 #
@@ -28,7 +28,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-cd "$HERE/../docker"
+cd "$HERE/../deploy/compose"
 
 PROJECT=juiceshop-ctf-e2e
 export CTF_HTTP_PORT="${E2E_PORT:-18081}"

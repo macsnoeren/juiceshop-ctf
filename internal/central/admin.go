@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/macsnoeren/juiceshop-ctf/internal/httpx"
-	"github.com/macsnoeren/juiceshop-ctf/internal/store"
+	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
 )
 
 // The operator pages (DESIGN.md §8.4). nginx guards <base>/admin/ with an IP

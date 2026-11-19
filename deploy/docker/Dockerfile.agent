@@ -1,0 +1,42 @@
+# ctf-agent: watches one Juice Shop and reports to ctf-central (DESIGN.md §6, §7)
+#
+# Build context is the REPOSITORY ROOT, not this directory:
+#
+#   docker build -f deploy/deploy/docker/Dockerfile.agent -t juiceshop-ctf-agent:latest .
+#
+# which is also the shape of the node.conf entry in jmnl-external-servers
+#   "juiceshop-ctf-agent:latest|../projects/juiceshop-ctf|../projects/juiceshop-ctf/deploy/deploy/docker/Dockerfile.agent"
+#
+# The result is FROM scratch: one static binary, CA certificates, a passwd
+# line for the non-root user, nothing else. There is no shell to exec into and
+# nothing to patch but the binary itself. The HEALTHCHECK therefore runs the
+# binary's own -healthcheck flag (internal/health), not curl.
+
+FROM golang:1.26.10-alpine3.24 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+COPY web ./web
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath \
+      -ldflags "-s -w -X github.com/macsnoeren/juiceshop-ctf/internal/shared/version.Version=${VERSION}" \
+      -o /out/ctf-agent ./cmd/ctf-agent \
+ && mkdir -p /out/rootfs/etc \
+ && echo 'ctf:x:10001:10001:ctf:/nonexistent:/sbin/nologin' > /out/rootfs/etc/passwd \
+ && echo 'ctf:x:10001:' > /out/rootfs/etc/group \
+ && mkdir -p /out/rootfs/var/lib/ctf-agent
+
+FROM scratch
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /out/rootfs/etc/passwd /out/rootfs/etc/group /etc/
+# The state directory, owned by the runtime user. A named volume mounted here
+# is initialised from it, ownership included, so the non-root process can
+# write to a fresh volume without a chown step.
+COPY --from=build --chown=10001:10001 /out/rootfs/var/lib/ctf-agent /var/lib/ctf-agent
+COPY --from=build /out/ctf-agent /ctf-agent
+USER 10001:10001
+EXPOSE 8081 8082
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --start-interval=2s --retries=3 CMD ["/ctf-agent", "-healthcheck"]
+ENTRYPOINT ["/ctf-agent"]

@@ -26,11 +26,11 @@ import (
 	"time"
 	_ "time/tzdata" // the scratch image has no zoneinfo
 
-	"github.com/macsnoeren/juiceshop-ctf/internal/config"
-	"github.com/macsnoeren/juiceshop-ctf/internal/health"
-	"github.com/macsnoeren/juiceshop-ctf/internal/httpx"
-	"github.com/macsnoeren/juiceshop-ctf/internal/status"
-	"github.com/macsnoeren/juiceshop-ctf/internal/version"
+	"github.com/macsnoeren/juiceshop-ctf/internal/node/status"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/config"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/health"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/version"
 )
 
 func main() {

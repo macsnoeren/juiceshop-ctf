@@ -20,17 +20,17 @@ import (
 	"encoding/json"
 	"errors"
 	"html/template"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/macsnoeren/juiceshop-ctf/internal/httpx"
-	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
-	"github.com/macsnoeren/juiceshop-ctf/internal/store"
-	"github.com/macsnoeren/juiceshop-ctf/web"
+	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/web/central"
+	"github.com/macsnoeren/juiceshop-ctf/web/static"
 )
 
 // Config is ctf-central's configuration.
@@ -82,7 +82,7 @@ func New(cfg Config, st *store.Store, log *slog.Logger) (*Server, error) {
 		},
 		"online": func(in store.Instance) bool { return in.Online(s.now()) },
 	}
-	t, err := template.New("").Funcs(funcs).ParseFS(web.FS, "central/*.html")
+	t, err := template.New("").Funcs(funcs).ParseFS(centralweb.FS, "*.html")
 	if err != nil {
 		return nil, err
 	}
@@ -94,8 +94,8 @@ func New(cfg Config, st *store.Store, log *slog.Logger) (*Server, error) {
 func (s *Server) Handler() http.Handler {
 	b := s.cfg.BasePath
 	mux := http.NewServeMux()
-	static, _ := fs.Sub(web.FS, "static")
-	mux.Handle("GET "+b+"/static/", http.StripPrefix(b+"/static/", http.FileServerFS(static)))
+	staticFS := static.FS
+	mux.Handle("GET "+b+"/static/", http.StripPrefix(b+"/static/", http.FileServerFS(staticFS)))
 	mux.HandleFunc("GET "+b+"/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if s.st.Ping() != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)

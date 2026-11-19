@@ -29,13 +29,13 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/macsnoeren/juiceshop-ctf/internal/agent"
-	"github.com/macsnoeren/juiceshop-ctf/internal/config"
-	"github.com/macsnoeren/juiceshop-ctf/internal/health"
-	"github.com/macsnoeren/juiceshop-ctf/internal/httpx"
 	"github.com/macsnoeren/juiceshop-ctf/internal/juiceshop"
-	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
-	"github.com/macsnoeren/juiceshop-ctf/internal/version"
+	"github.com/macsnoeren/juiceshop-ctf/internal/node/agent"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/config"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/health"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/version"
 )
 
 func main() {

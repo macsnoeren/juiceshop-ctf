@@ -2,7 +2,7 @@
 # test.sh: everything that runs without Docker. Run before every commit.
 #
 #   bash scripts/test.sh          vet, unit tests with the race detector, gofmt
-#   bash scripts/test.sh -fuzz    also fuzz the gate cookie for 30 s (TASKS.md T06)
+#   bash scripts/test.sh -fuzz    also fuzz the gate cookie for 30 s (the cookie format of the optional gate)
 #
 # The end-to-end test, which needs Docker, is tests/e2e.sh.
 set -euo pipefail

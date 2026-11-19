@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
-	"github.com/macsnoeren/juiceshop-ctf/internal/store"
+	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
 )
 
 var t0 = time.Date(2026, 11, 18, 9, 0, 0, 0, time.UTC)
