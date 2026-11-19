@@ -1,3 +1,4 @@
+[![release](https://github.com/macsnoeren/juiceshop-ctf/actions/workflows/release.yml/badge.svg)](https://github.com/macsnoeren/juiceshop-ctf/actions/workflows/release.yml)
 # Juice Shop CTF
 
 [Releases](https://github.com/macsnoeren/juiceshop-ctf/releases): the students' VM for VirtualBox and VMware ·
