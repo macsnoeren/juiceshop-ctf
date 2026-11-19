@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0 — unreleased
+## 1.1.0
 
 What the first student lab asked for; the reasoning is in
 [docs/VERSION-1-1.md](docs/VERSION-1-1.md), the steps in
