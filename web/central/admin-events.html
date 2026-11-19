@@ -1,0 +1,39 @@
+{{define "eventlist"}}
+<div class="table-wrap">
+<table class="events">
+  <thead><tr><th>Time</th><th>Kind</th><th>Game</th><th>Participant</th><th>Event</th><th class="hide-narrow">By</th><th class="hide-narrow">Address</th></tr></thead>
+  <tbody>
+  {{range .}}
+  <tr class="ev-{{.Kind}}"><td class="n">{{datetime (ptr .At)}}</td><td><span class="badge ev-{{.Kind}}">{{.Kind}}</span></td>
+    <td>{{if .GameID}}<a class="plain" href="{{path "/admin/games/"}}{{.GameID}}">{{or .GameName "(deleted)"}}</a>{{end}}</td>
+    <td>{{if .ParticipantID}}<a class="plain" href="{{path "/admin/events"}}?participant={{.ParticipantID}}">{{or .ParticipantName (print "#" .ParticipantID)}}</a>{{end}}</td>
+    <td>{{.Text}}</td><td class="hide-narrow">{{.Actor}}</td><td class="hide-narrow muted">{{.Address}}</td></tr>
+  {{else}}<tr><td colspan="7" class="empty">No events.</td></tr>{{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
+
+{{define "admin-events"}}{{template "head" (print "Events · " .Title)}}
+<body>
+{{template "anav" .}}
+<main>
+<h1>Events</h1>
+<form class="filters card" method="get" action="{{path "/admin/events"}}">
+  <label class="inline">Game <select name="game"><option value="">all</option>
+    {{range .Games}}<option value="{{.ID}}"{{if eq .ID $.F.GameID}} selected{{end}}>{{.Name}}</option>{{end}}</select></label>
+  <label class="inline">Kind <select name="kind"><option value="">all</option>
+    {{range .Kinds}}<option{{if eq . $.F.Kind}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+  {{if .F.ParticipantID}}<label class="inline">Participant <input name="participant" value="{{.F.ParticipantID}}" size="6"></label>{{end}}
+  <button type="submit" class="small">Filter</button>
+  <a class="button small secondary" href="{{path "/admin/events.csv"}}{{if .Query}}?{{.Query}}{{end}}">Export CSV</a>
+  <label class="check inline"><input type="checkbox" id="pause"> pause refresh</label>
+</form>
+<section class="card" id="feed" data-refresh="10">
+  {{template "eventlist" .Events}}
+</section>
+</main>
+<script src="{{path "/static/admin.js"}}" defer></script>
+</body>
+</html>
+{{end}}

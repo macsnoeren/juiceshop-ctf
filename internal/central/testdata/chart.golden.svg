@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 320" role="img" aria-label="Score over time, top 3: Zoë de Vries 1500, Bram O&#39;Neill 350, Chen Li 350." font-family="Roboto, Noto Sans, Helvetica Neue, Segoe UI, Arial, sans-serif" font-size="12">
+<title>Score over time, top 3: Zoë de Vries 1500, Bram O&#39;Neill 350, Chen Li 350.</title>
+<style>
+.axis{stroke:#5a5a5a;stroke-width:1}.grid{stroke:#3a3b3e;stroke-width:1}.t{fill:#b8c0c7}.l{fill:#e8ecef;font-weight:500}
+polyline{fill:none;stroke:var(--c);stroke-width:2.5;stroke-linejoin:round}tspan{fill:var(--c)}
+.s0{--c:#70e000}.s1{--c:#4dabf7}.s2{--c:#ff8c42}.s3{--c:#da77f2}.s4{--c:#ffd43b}.s5{--c:#3bc9db}.s6{--c:#f783ac}.s7{--c:#a9e34b}.s8{--c:#748ffc}.s9{--c:#ced4da}
+</style>
+
+<line class="grid" x1="48" x2="760" y1="290" y2="290"/><text class="t" x="48" dx="-6" y="290" dy="4" text-anchor="end">0</text>
+<line class="grid" x1="48" x2="760" y1="153" y2="153"/><text class="t" x="48" dx="-6" y="153" dy="4" text-anchor="end">1000</text>
+<line class="grid" x1="48" x2="760" y1="16" y2="16"/><text class="t" x="48" dx="-6" y="16" dy="4" text-anchor="end">2000</text>
+<line class="axis" x1="48" x2="760" y1="290" y2="290"/>
+<text class="t" x="48" y="290" dy="18" text-anchor="middle">09:00</text>
+<text class="t" x="226" y="290" dy="18" text-anchor="middle">09:10</text>
+<text class="t" x="404" y="290" dy="18" text-anchor="middle">09:20</text>
+<text class="t" x="582" y="290" dy="18" text-anchor="middle">09:30</text>
+<text class="t" x="760" y="290" dy="18" text-anchor="middle">09:40</text>
+<polyline class="s0" points="65.8,290 226,290 226,276.3 404,276.3 404,180.4 404,180.4 404,84.5 760,84.5"/>
+<polyline class="s1" points="83.6,290 261.6,290 261.6,276.3 261.6,276.3 261.6,242.1 760,242.1"/>
+<polyline class="s2" points="101.4,290 315,290 315,276.3 582,276.3 582,242.1 760,242.1"/>
+<text class="l" x="768" y="88.5"><tspan class="s0">━</tspan> Zoë de Vries 1500</text>
+<text class="l" x="768" y="246.05"><tspan class="s1">━</tspan> Bram O&#39;Neill 350</text>
+<text class="l" x="768" y="260.05"><tspan class="s2">━</tspan> Chen Li 350</text>
+</svg>

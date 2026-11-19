@@ -3,36 +3,75 @@ package central
 import (
 	"encoding/csv"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/macsnoeren/juiceshop-ctf/internal/httpx"
-	"github.com/macsnoeren/juiceshop-ctf/internal/store"
+	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
 )
 
-// The operator pages (DESIGN.md §8.4). nginx guards <base>/admin/ with an IP
-// allow-list and htpasswd; this code adds only CSRF protection, so that a
-// page in the operator's browser cannot make them reset a participant.
+// The operator pages (VERSION-1-1.md §5.2–§5.4). Every one of them needs a
+// logged-in admin account (auth.go; the setup page makes the first), and
+// every form carries a CSRF token as well, so a page in the operator's
+// browser cannot make them clear a game. Every action is written to the
+// event feed, once, with the account that did it. On neo nginx keeps its IP
+// allow-list in front of <base>/admin/ as a second lock.
 //
-//	GET  <base>/admin/                                the overview
-//	POST <base>/admin/instances                       create (token shown once)
-//	POST <base>/admin/instances/{id}/rotate           new token (shown once)
-//	POST <base>/admin/participants/{id}/{action}      hide | show | reset
-//	POST <base>/admin/scoring                         points per difficulty
-//	GET  <base>/admin/export.csv                      every participant
+//	GET  <base>/admin/                                games, settings
+//	POST <base>/admin/games                           create (join code shown once)
+//	GET  <base>/admin/games/{id}                      a game and its participants
+//	POST <base>/admin/games/{id}/edit                 name, window, scoring, board options
+//	POST <base>/admin/games/{id}/state                open | running | closed (closing: type the name)
+//	POST <base>/admin/games/{id}/code                 a new join code (shown once)
+//	POST <base>/admin/games/{id}/clear                every participant out, VMs told forget (type the name)
+//	POST <base>/admin/games/{id}/delete               the same, and the game (type the name)
+//	GET  <base>/admin/games/{id}/export.csv           the participants
+//	POST <base>/admin/participants/{id}/{action}      hide | show | remove (type the game's name) | delete
+//	GET  <base>/admin/events[.csv]                    the feed, ?game= &participant= &kind=
+//	POST <base>/admin/settings                        title, time zone, retention
 
 const adminCSRFCookie = "ctf_admin_csrf"
 
 func (s *Server) adminRoutes(mux *http.ServeMux) {
 	b := s.cfg.BasePath + "/admin"
-	mux.HandleFunc("GET "+b+"/{$}", func(w http.ResponseWriter, r *http.Request) { s.adminPage(w, r, http.StatusOK, adminFlash{}) })
 	mux.HandleFunc("GET "+b, func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, b+"/", http.StatusFound) })
-	mux.HandleFunc("POST "+b+"/instances", s.csrf(s.handleCreateInstance))
-	mux.HandleFunc("POST "+b+"/instances/{id}/rotate", s.csrf(s.handleRotate))
-	mux.HandleFunc("POST "+b+"/participants/{id}/{action}", s.csrf(s.handleParticipantAction))
-	mux.HandleFunc("POST "+b+"/scoring", s.csrf(s.handleScoring))
-	mux.HandleFunc("GET "+b+"/export.csv", s.handleExport)
+	mux.HandleFunc("GET "+b+"/{$}", s.requireUser(func(w http.ResponseWriter, r *http.Request) { s.adminHome(w, r, http.StatusOK, "") }))
+	mux.HandleFunc("POST "+b+"/games", s.action(s.handleCreateGame))
+	mux.HandleFunc("GET "+b+"/games/{id}", s.requireUser(func(w http.ResponseWriter, r *http.Request) {
+		if g, ok := s.adminGame(w, r); ok {
+			s.gamePage(w, r, g, http.StatusOK, flash{})
+		}
+	}))
+	mux.HandleFunc("POST "+b+"/games/{id}/{action}", s.action(s.handleGameAction))
+	mux.HandleFunc("GET "+b+"/games/{id}/export.csv", s.requireUser(s.handleExport))
+	mux.HandleFunc("POST "+b+"/participants/{id}/{action}", s.action(s.handleParticipantAction))
+	mux.HandleFunc("GET "+b+"/events", s.requireUser(s.handleEvents))
+	mux.HandleFunc("GET "+b+"/events.csv", s.requireUser(s.handleEventsCSV))
+	mux.HandleFunc("POST "+b+"/settings", s.action(s.handleSettings))
+	s.authRoutes(mux)
+}
+
+// abase is pageBase for an admin page: the account, the CSRF token for the
+// log-out button in the bar, and which part of admin is open.
+func (s *Server) abase(w http.ResponseWriter, r *http.Request, g *store.Game) pageBase {
+	pb := s.base(g)
+	pb.CSRF = s.adminCSRF(w, r)
+	if u := currentUser(r); u != nil {
+		pb.Me = u.Username
+	}
+	switch p := r.URL.Path; {
+	case strings.Contains(p, "/admin/events"):
+		pb.Section = "events"
+	case strings.Contains(p, "/admin/users"), strings.Contains(p, "/admin/account"):
+		pb.Section = "users"
+	default:
+		pb.Section = "games"
+	}
+	return pb
 }
 
 func (s *Server) adminCSRF(w http.ResponseWriter, r *http.Request) string {
@@ -64,93 +103,244 @@ func (s *Server) csrf(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-type adminFlash struct {
-	Message string
-	Error   string
-	// Token is shown once, right after it was created or rotated.
-	Token         string
-	TokenInstance string
+// admin writes an admin action to the feed, with who did it and from where.
+func (s *Server) admin(r *http.Request, e store.Event) {
+	e.Kind = store.EvAdmin
+	if u := currentUser(r); u != nil {
+		e.Actor = u.Username
+	}
+	e.Address = httpx.ClientIP(r)
+	s.event(e)
 }
 
-type adminData struct {
-	Title        string
-	Base         string
-	CSRF         string
-	Flash        adminFlash
-	Instances    []store.Instance
-	Participants []store.Row
-	Scoring      []scoringRow
-	CentralURL   string
+type flash struct {
+	Message string
+	Error   string
+	// Code is a join code, shown once: right after the game was made or the
+	// code regenerated. It is never stored, so it can never be shown again.
+	Code string
+}
+
+type adminHomeData struct {
+	pageBase
+	Error    string
+	Games    []store.GameSummary
+	Settings store.Settings
+	Scoring  []scoringRow
+	Now      time.Time
 }
 
 type scoringRow struct{ Difficulty, Points int }
 
-func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, status int, f adminFlash) {
-	ins, err := s.st.Instances()
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	ps, err := s.st.AllParticipants(s.now())
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	sc, err := s.st.Scoring()
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	var rows []scoringRow
+func scoringRows(sc map[int]int) []scoringRow {
+	var out []scoringRow
 	for d := 1; d <= 6; d++ {
-		rows = append(rows, scoringRow{d, sc[d]})
+		out = append(out, scoringRow{d, sc[d]})
 	}
-	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
-	s.render(w, status, "admin", adminData{
-		Title: s.cfg.Title, Base: s.cfg.BasePath, CSRF: s.adminCSRF(w, r), Flash: f,
-		Instances: ins, Participants: ps, Scoring: rows,
-		CentralURL: scheme + "://" + r.Host + s.cfg.BasePath,
-	})
+	return out
 }
 
-func (s *Server) back(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, s.cfg.BasePath+"/admin/", http.StatusSeeOther)
+func (s *Server) adminHome(w http.ResponseWriter, r *http.Request, status int, errMsg string) {
+	gs, err := s.st.Games(s.now())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	set, err := s.st.Settings()
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.render(w, status, "admin", adminHomeData{pageBase: s.abase(w, r, nil), Error: errMsg,
+		Games: gs, Settings: set, Scoring: scoringRows(store.DefaultScoring), Now: s.now()})
 }
 
-func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimSpace(r.PostFormValue("id"))
-	label := strings.TrimSpace(r.PostFormValue("label"))
-	if len(label) > 100 {
-		label = label[:100]
+// parseTime reads a datetime-local field in the operator's time zone.
+func (s *Server) parseTime(v string) (*time.Time, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil, nil
 	}
-	tok, err := s.st.CreateInstance(id, label, s.now())
-	switch {
-	case errors.Is(err, store.ErrExists):
-		s.adminPage(w, r, http.StatusConflict, adminFlash{Error: "An instance " + id + " already exists. Use “new token” on it instead."})
-	case err != nil:
-		s.adminPage(w, r, http.StatusBadRequest, adminFlash{Error: err.Error()})
-	default:
-		s.log.Info("instance created", "instance", id)
-		s.adminPage(w, r, http.StatusOK, adminFlash{Message: "Instance " + id + " created.", Token: tok, TokenInstance: id})
+	t, err := time.ParseInLocation("2006-01-02T15:04", v, s.location())
+	if err != nil {
+		return nil, fmt.Errorf("a time is written as 2026-11-19T09:00")
 	}
+	return &t, nil
 }
 
-func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	tok, err := s.st.RotateToken(id)
+func (s *Server) gameInput(r *http.Request) (store.GameInput, error) {
+	in := store.GameInput{Name: r.PostFormValue("name"), BoardHidden: r.PostFormValue("hidden") == "on",
+		BoardInitials: r.PostFormValue("initials") == "on", Scoring: map[int]int{}}
+	var err error
+	if in.StartsAt, err = s.parseTime(r.PostFormValue("starts_at")); err != nil {
+		return in, err
+	}
+	if in.EndsAt, err = s.parseTime(r.PostFormValue("ends_at")); err != nil {
+		return in, err
+	}
+	for d := 1; d <= 6; d++ {
+		v := strings.TrimSpace(r.PostFormValue("points" + strconv.Itoa(d)))
+		if v == "" {
+			in.Scoring[d] = store.DefaultScoring[d]
+			continue
+		}
+		p, err := strconv.Atoi(v)
+		if err != nil {
+			return in, fmt.Errorf("points must be whole numbers")
+		}
+		in.Scoring[d] = p
+	}
+	return in, nil
+}
+
+func (s *Server) handleCreateGame(w http.ResponseWriter, r *http.Request) {
+	in, err := s.gameInput(r)
+	if err != nil {
+		s.adminHome(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	g, code, err := s.st.CreateGame(in, s.now())
+	if err != nil {
+		s.adminHome(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.admin(r, store.Event{GameID: g.ID, Text: "game created: " + g.Name + " (draft)"})
+	s.gamePage(w, r, g, http.StatusOK, flash{Message: "Game created, in draft: students cannot join until you open it.", Code: code})
+}
+
+func (s *Server) adminGame(w http.ResponseWriter, r *http.Request) (*store.Game, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return nil, false
+	}
+	g, err := s.st.Game(id)
 	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)
-		return
+		return nil, false
 	}
+	if err != nil {
+		s.fail(w, err)
+		return nil, false
+	}
+	return g, true
+}
+
+type gamePageData struct {
+	pageBase
+	Flash        flash
+	G            *store.Game
+	Participants []*store.Participant
+	Scoring      []scoringRow
+	Counts       map[string]int
+	BoardURL     string
+	Events       []store.Event
+	Now          time.Time
+}
+
+func (s *Server) gamePage(w http.ResponseWriter, r *http.Request, g *store.Game, status int, f flash) {
+	now := s.now()
+	ps, err := s.st.GameParticipants(g, now)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	s.log.Info("instance token rotated", "instance", id)
-	s.adminPage(w, r, http.StatusOK, adminFlash{Message: "New token for " + id + ". The old one no longer works.", Token: tok, TokenInstance: id})
+	counts := map[string]int{}
+	for _, p := range ps {
+		counts[p.Status()]++
+	}
+	evs, err := s.st.Events(store.EventFilter{GameID: g.ID, Limit: 15})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.render(w, status, "admin-game", gamePageData{pageBase: s.abase(w, r, g), Flash: f, G: g,
+		Participants: ps, Scoring: scoringRows(g.Scoring), Counts: counts, BoardURL: s.boardURL(r, g.Slug), Events: evs, Now: now})
+}
+
+// confirmed checks the typed confirmation of a destructive action: the
+// game's name, exactly (surrounding spaces aside).
+func confirmed(r *http.Request, g *store.Game) bool {
+	return strings.TrimSpace(r.PostFormValue("confirm")) == g.Name
+}
+
+func (s *Server) handleGameAction(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.adminGame(w, r)
+	if !ok {
+		return
+	}
+	now := s.now()
+	back := func(msg string) {
+		g2, err := s.st.Game(g.ID)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		s.gamePage(w, r, g2, http.StatusOK, flash{Message: msg})
+	}
+	refuse := func(status int, msg string) { s.gamePage(w, r, g, status, flash{Error: msg}) }
+	needName := "Type the game's name exactly to confirm; nothing was changed."
+
+	switch r.PathValue("action") {
+	case "edit":
+		in, err := s.gameInput(r)
+		if err == nil {
+			err = s.st.UpdateGame(g.ID, in)
+		}
+		if err != nil {
+			refuse(http.StatusBadRequest, err.Error())
+			return
+		}
+		s.admin(r, store.Event{GameID: g.ID, Text: "game edited: " + in.Name})
+		back("Saved.")
+	case "state":
+		to := r.PostFormValue("to")
+		if to == protocol.StateClosed && !confirmed(r, g) {
+			refuse(http.StatusBadRequest, needName)
+			return
+		}
+		if err := s.st.SetState(g.ID, to, now); err != nil {
+			refuse(http.StatusConflict, strings.TrimPrefix(err.Error(), store.ErrConflict.Error()+": "))
+			return
+		}
+		what := map[string]string{protocol.StateOpen: "opened for joining", protocol.StateRunning: "started (running)", protocol.StateClosed: "ended (closed): no joins, no solves counted, board frozen"}[to]
+		s.admin(r, store.Event{GameID: g.ID, Text: "game " + what})
+		back("The game is now " + to + ".")
+	case "code":
+		code, err := s.st.RegenerateCode(g.ID)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		s.admin(r, store.Event{GameID: g.ID, Text: "join code regenerated; the old code no longer admits anyone"})
+		g2, _ := s.st.Game(g.ID)
+		s.gamePage(w, r, g2, http.StatusOK, flash{Message: "New join code. The old one no longer works; students who joined keep playing.", Code: code})
+	case "clear":
+		if !confirmed(r, g) {
+			refuse(http.StatusBadRequest, needName)
+			return
+		}
+		n, err := s.st.ClearGame(g.ID, now)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		s.admin(r, store.Event{GameID: g.ID, Text: fmt.Sprintf("game cleared: %d participants and their solves deleted, every VM told forget", n)})
+		back(fmt.Sprintf("Cleared: %d participants deleted. Their VMs forget at their next report.", n))
+	case "delete":
+		if !confirmed(r, g) {
+			refuse(http.StatusBadRequest, needName)
+			return
+		}
+		if err := s.st.DeleteGame(g.ID, now); err != nil {
+			s.fail(w, err)
+			return
+		}
+		s.admin(r, store.Event{Text: "game deleted: " + g.Name + " (its VMs told forget)"})
+		http.Redirect(w, r, s.cfg.BasePath+"/admin/", http.StatusSeeOther)
+	default:
+		http.NotFound(w, r)
+	}
 }
 
 func (s *Server) handleParticipantAction(w http.ResponseWriter, r *http.Request) {
@@ -159,20 +349,7 @@ func (s *Server) handleParticipantAction(w http.ResponseWriter, r *http.Request)
 		http.NotFound(w, r)
 		return
 	}
-	switch r.PathValue("action") {
-	case "hide":
-		err = s.st.SetHidden(id, true)
-	case "show":
-		err = s.st.SetHidden(id, false)
-	case "reset":
-		err = s.st.ResetParticipant(id, s.now())
-		if err == nil {
-			s.log.Info("participant reset; reset_registration queued", "participant", id)
-		}
-	default:
-		http.NotFound(w, r)
-		return
-	}
+	p, err := s.st.Participant(id)
 	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)
 		return
@@ -181,29 +358,58 @@ func (s *Server) handleParticipantAction(w http.ResponseWriter, r *http.Request)
 		s.fail(w, err)
 		return
 	}
-	s.back(w, r)
-}
-
-func (s *Server) handleScoring(w http.ResponseWriter, r *http.Request) {
-	for d := 1; d <= 6; d++ {
-		v := r.PostFormValue("points" + strconv.Itoa(d))
-		if v == "" {
-			continue
-		}
-		p, err := strconv.Atoi(v)
-		if err == nil {
-			err = s.st.SetScoring(d, p)
-		}
-		if err != nil {
-			s.adminPage(w, r, http.StatusBadRequest, adminFlash{Error: "Points must be whole numbers from 0 to 100000."})
+	g, err := s.st.Game(p.GameID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	var msg string
+	switch r.PathValue("action") {
+	case "hide", "show":
+		hide := r.PathValue("action") == "hide"
+		if err := s.st.SetHidden(id, hide); err != nil {
+			s.fail(w, err)
 			return
 		}
+		msg = map[bool]string{true: "hidden from the board", false: "shown on the board again"}[hide]
+	case "remove":
+		if !confirmed(r, g) {
+			s.gamePage(w, r, g, http.StatusBadRequest, flash{Error: "Type the game's name exactly to remove " + p.Name + "; nothing was changed."})
+			return
+		}
+		if err := s.st.Remove(id, s.now()); err != nil {
+			s.fail(w, err)
+			return
+		}
+		msg = "removed: off the board, the token stops working, the VM is told forget"
+	case "delete":
+		if err := s.st.DeleteParticipant(id); err != nil {
+			s.gamePage(w, r, g, http.StatusConflict, flash{Error: strings.TrimPrefix(err.Error(), store.ErrConflict.Error()+": ")})
+			return
+		}
+		msg = "deleted, with their solves"
+	default:
+		http.NotFound(w, r)
+		return
 	}
-	s.back(w, r)
+	s.admin(r, store.Event{GameID: g.ID, ParticipantID: id, Text: "participant " + p.Name + " " + msg})
+	g2, _ := s.st.Game(g.ID)
+	s.gamePage(w, r, g2, http.StatusOK, flash{Message: p.Name + ": " + msg + "."})
 }
 
-// csvSafe keeps a spreadsheet from reading a cell as a formula. Names cannot
-// contain = + @, but they may start with a dash.
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	days, _ := strconv.Atoi(r.PostFormValue("retention"))
+	in := store.Settings{Title: r.PostFormValue("title"), Timezone: strings.TrimSpace(r.PostFormValue("timezone")), RetentionDays: days}
+	if err := s.st.SaveSettings(in); err != nil {
+		s.adminHome(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.reloadSettings()
+	s.admin(r, store.Event{Text: fmt.Sprintf("settings changed: title %q, time zone %s, events kept %d days", in.Title, in.Timezone, in.RetentionDays)})
+	http.Redirect(w, r, s.cfg.BasePath+"/admin/", http.StatusSeeOther)
+}
+
+// csvSafe keeps a spreadsheet from reading a cell as a formula (1.0's rule).
 func csvSafe(v string) string {
 	if v != "" && strings.ContainsRune("=+-@\t\r", rune(v[0])) {
 		return "'" + v
@@ -211,36 +417,86 @@ func csvSafe(v string) string {
 	return v
 }
 
+func csvTime(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.st.AllParticipants(s.now())
+	g, ok := s.adminGame(w, r)
+	if !ok {
+		return
+	}
+	ps, err := s.st.GameParticipants(g, s.now())
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="juiceshop-ctf.csv"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+g.Slug+`.csv"`)
 	cw := csv.NewWriter(w)
-	cw.Write([]string{"participant", "name", "instance", "registered_at", "ended_at", "hidden", "rank", "score", "solved", "total", "last_solve", "avg_cheat"})
-	f := func(p *float64) string {
-		if p == nil {
-			return ""
+	cw.Write([]string{"participant", "name", "status", "rank", "score", "solved", "joined_at", "left_at", "last_report_at", "node_version", "avg_cheat", "flags"})
+	for _, p := range ps {
+		avg := ""
+		if p.AvgCheat != nil {
+			avg = strconv.FormatFloat(*p.AvgCheat, 'f', 3, 64)
 		}
-		return strconv.FormatFloat(*p, 'f', 3, 64)
+		var fl []string
+		for _, f := range p.Flags {
+			fl = append(fl, f.Text)
+		}
+		cw.Write([]string{strconv.FormatInt(p.ID, 10), csvSafe(p.Name), p.Status(), strconv.Itoa(p.Rank), strconv.Itoa(p.Score),
+			strconv.Itoa(p.Solved), csvTime(&p.JoinedAt), csvTime(p.LeftAt), csvTime(p.LastReportAt), csvSafe(p.NodeVersion), avg, csvSafe(strings.Join(fl, "; "))})
 	}
-	ts := func(t interface{ Format(string) string }) string { return t.Format("2006-01-02T15:04:05Z07:00") }
-	for _, p := range rows {
-		ended, last := "", ""
-		if p.EndedAt != nil {
-			ended = ts(p.EndedAt.UTC())
-		}
-		if p.LastSolve != nil {
-			last = ts(p.LastSolve.UTC())
-		}
-		cw.Write([]string{
-			strconv.FormatInt(p.ParticipantID, 10), csvSafe(p.Name), p.Instance, ts(p.RegisteredAt.UTC()), ended,
-			strconv.FormatBool(p.Hidden), strconv.Itoa(p.Rank), strconv.Itoa(p.Score), strconv.Itoa(p.Solved),
-			strconv.Itoa(p.Total), last, f(p.AvgCheat),
-		})
+	cw.Flush()
+}
+
+func (s *Server) eventFilter(r *http.Request) store.EventFilter {
+	q := r.URL.Query()
+	f := store.EventFilter{Kind: q.Get("kind")}
+	f.GameID, _ = strconv.ParseInt(q.Get("game"), 10, 64)
+	f.ParticipantID, _ = strconv.ParseInt(q.Get("participant"), 10, 64)
+	return f
+}
+
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	f := s.eventFilter(r)
+	evs, err := s.st.Events(f)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	gs, err := s.st.Games(s.now())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.render(w, http.StatusOK, "admin-events", struct {
+		pageBase
+		F      store.EventFilter
+		Events []store.Event
+		Games  []store.GameSummary
+		Kinds  []string
+		Query  string
+	}{s.abase(w, r, nil), f, evs, gs, store.EventKinds, r.URL.RawQuery})
+}
+
+func (s *Server) handleEventsCSV(w http.ResponseWriter, r *http.Request) {
+	f := s.eventFilter(r)
+	f.Limit = 5000
+	evs, err := s.st.Events(f)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="juiceshop-ctf-events.csv"`)
+	cw := csv.NewWriter(w)
+	cw.Write([]string{"at", "kind", "game", "participant", "by", "address", "text"})
+	for _, e := range evs {
+		cw.Write([]string{e.At.UTC().Format(time.RFC3339), e.Kind, csvSafe(e.GameName), csvSafe(e.ParticipantName), csvSafe(e.Actor), e.Address, csvSafe(e.Text)})
 	}
 	cw.Flush()
 }

@@ -1,21 +1,24 @@
-{{define "beamer"}}{{template "chead" .Title}}
+{{define "beamer"}}{{template "head" (print .Game.Name " · " .Title)}}
 <body class="beamer">
+<header class="appbar beamer-head">
+  <span class="home">{{template "mark"}}<span class="name">{{.Game.Name}}</span></span>
+  {{if .Ended}}<p class="countdown final">Final result</p>
+  {{else if .Game.EndsAt}}<p class="countdown" id="countdown" data-ends-at="{{iso .Game.EndsAt}}">{{remaining .Game.EndsAt}}</p>
+  {{else}}<p class="countdown live">Live</p>{{end}}
+</header>
 <main>
-<header class="brand"><span class="logo" aria-hidden="true">◆</span> {{.Title}}</header>
-<div class="beamer-grid">
+<div id="board" data-json="{{.GBase}}board.json" data-base="{{.GBase}}" data-beamer="1"{{if .Ended}} data-final="1"{{end}}>
+  <section class="podium big" id="podium" aria-label="The top three">{{template "podium" .}}</section>
   <section class="card">
-    {{template "board" .Board}}
+    <table class="board">
+      <thead><tr><th>#</th><th>Name</th><th class="n">Points</th><th class="n">Solved</th><th>By category</th></tr></thead>
+      <tbody id="rows">{{template "rows" .}}</tbody>
+    </table>
   </section>
-  <section class="card">
-    <h2>Just solved</h2>
-    <ul class="solves" id="recent">
-      {{range .Board.Recent}}<li><span class="stars">{{stars .Difficulty}}</span> <strong>{{.Name}}</strong> <span class="muted">{{.Challenge}}</span> <time>{{hm .SolvedAt}}</time></li>
-      {{else}}<li class="muted">Nothing yet.</li>{{end}}
-    </ul>
-  </section>
+  {{if not .Ended}}<ol class="ticker strip" id="ticker">{{template "ticker" .}}</ol>{{end}}
 </div>
 </main>
-<script src="{{path "/static/leaderboard.js"}}" defer></script>
+<script src="{{path "/static/board.js"}}" defer></script>
 </body>
 </html>
 {{end}}

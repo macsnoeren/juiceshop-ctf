@@ -1,0 +1,136 @@
+// Package node is ctf-node: the CTF half of the juiceshop-ctf container
+// (docs/VERSION-1-1.md §3.1, §4). One program where 1.0 had two (ctf-agent
+// and ctf-status):
+//
+//   - the student's page at /ctf/: join, progress, rank, the two buttons
+//     (page.go);
+//   - the reverse proxy to Juice Shop at /juiceshop/ and /assets/, which
+//     refuses Juice Shop's continue-code apply (proxy.go);
+//   - the watcher: it polls Juice Shop, restores a restarted one from the
+//     continue codes and records first-seen solve times (watcher.go, 1.0's
+//     agent logic);
+//   - the reporter: join, report and leave against the central server, with
+//     an outbox when it is unreachable (central.go);
+//   - node.db: everything above remembers in SQLite (store.go).
+//
+// It runs as uid 10001 with no capabilities, started by the keeper
+// (internal/node/keeper), which alone may start and stop Juice Shop.
+package node
+
+import (
+	"time"
+
+	"github.com/macsnoeren/juiceshop-ctf/internal/juiceshop"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+)
+
+// The statuses of a membership.
+const (
+	// StatusLocal: no central server is configured; the student gave a name
+	// and plays on their own (VERSION-1-1.md §4.3).
+	StatusLocal = "local"
+	// StatusPending: the join waits in the outbox for the central server.
+	StatusPending = "pending"
+	// StatusJoined: the central server issued a token.
+	StatusJoined = "joined"
+	// StatusRefused: the central server refused the queued join (unknown
+	// code, game closed). The page asks for the code again; the solves stay.
+	StatusRefused = "refused"
+	// StatusRejected: the central server no longer accepts the token (401).
+	// The page asks to join again; the solves stay.
+	StatusRejected = "rejected"
+)
+
+// Membership is the student on this VM. There is at most one.
+type Membership struct {
+	Status   string
+	Name     string
+	NodeUID  string // made at the first join, never at boot (§4.1)
+	JoinedAt time.Time
+	// CentralURL is the server this membership belongs to: a token is only
+	// good there, so changing the server needs Forget first.
+	CentralURL    string
+	ParticipantID int64
+	Token         string
+	Game          protocol.Game
+	BoardURL      string
+	Problem       string
+	// ReturnCodeHash is the optional gate's personal code (CTF_GATE=session).
+	ReturnCodeHash string
+}
+
+// Outbox is a join waiting for the central server (§4.3). It is the ONLY
+// place the join code is ever stored, and only until the join is answered.
+type Outbox struct {
+	Name      string
+	Code      string
+	JoinedAt  time.Time
+	Attempts  int
+	NextAt    time.Time
+	LastError string
+}
+
+// Standing is the last answer of the central server about this student.
+type Standing struct {
+	Rank, Of, Score int
+	At              time.Time
+}
+
+// State is everything the node remembers about the student (§4.1).
+type State struct {
+	Membership *Membership
+	Outbox     *Outbox
+	// Solved is the first time each challenge was seen solved. A time is
+	// never moved and a key never removed, except by Forget.
+	Solved map[string]time.Time
+	// Cheat is Juice Shop's own cheat estimate, from its webhook.
+	Cheat         map[string]float64
+	ContinueCodes juiceshop.Codes
+	// Baseline is what Juice Shop had solved when the student joined; it
+	// never counts, and applies only to the boot it was taken in.
+	Baseline        []string
+	BaselineBoot    string
+	RestoreFailed   bool
+	CommandsApplied []string
+	Standing        *Standing
+	LastReportAt    *time.Time
+}
+
+func newState() *State {
+	return &State{Solved: map[string]time.Time{}, Cheat: map[string]float64{}}
+}
+
+func (s *State) clone() *State {
+	cp := *s
+	if s.Membership != nil {
+		m := *s.Membership
+		cp.Membership = &m
+	}
+	if s.Outbox != nil {
+		o := *s.Outbox
+		cp.Outbox = &o
+	}
+	if s.Standing != nil {
+		st := *s.Standing
+		cp.Standing = &st
+	}
+	cp.Solved = make(map[string]time.Time, len(s.Solved))
+	for k, v := range s.Solved {
+		cp.Solved[k] = v
+	}
+	cp.Cheat = make(map[string]float64, len(s.Cheat))
+	for k, v := range s.Cheat {
+		cp.Cheat[k] = v
+	}
+	cp.Baseline = append([]string(nil), s.Baseline...)
+	cp.CommandsApplied = append([]string(nil), s.CommandsApplied...)
+	return &cp
+}
+
+// recording reports whether new solves belong to someone: there is a student,
+// and their game has not ended. A node keeps quiet about solves after the end
+// — an honest one never sends them (VERSION-1-1.md §5.5).
+func (s *State) recording() bool {
+	m := s.Membership
+	return m != nil && m.Game.State != protocol.StateClosed && m.Game.State != protocol.StateLeft
+}

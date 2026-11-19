@@ -1,0 +1,391 @@
+{
+  "categories": [
+    {
+      "index": 0,
+      "name": "Broken Access Control",
+      "slug": "broken-access-control",
+      "total": 12
+    },
+    {
+      "index": 1,
+      "name": "Broken Anti Automation",
+      "slug": "broken-anti-automation",
+      "total": 4
+    },
+    {
+      "index": 2,
+      "name": "Broken Authentication",
+      "slug": "broken-authentication",
+      "total": 9
+    },
+    {
+      "index": 3,
+      "name": "Cryptographic Issues",
+      "slug": "cryptographic-issues",
+      "total": 5
+    },
+    {
+      "index": 4,
+      "name": "Improper Input Validation",
+      "slug": "improper-input-validation",
+      "total": 12
+    },
+    {
+      "index": 5,
+      "name": "Injection",
+      "slug": "injection",
+      "total": 11
+    },
+    {
+      "index": 6,
+      "name": "Miscellaneous",
+      "slug": "miscellaneous",
+      "total": 6
+    },
+    {
+      "index": 7,
+      "name": "Observability Failures",
+      "slug": "observability-failures",
+      "total": 4
+    },
+    {
+      "index": 8,
+      "name": "Security Misconfiguration",
+      "slug": "security-misconfiguration",
+      "total": 4
+    },
+    {
+      "index": 9,
+      "name": "Security through Obscurity",
+      "slug": "security-through-obscurity",
+      "total": 3
+    },
+    {
+      "index": 10,
+      "name": "Sensitive Data Exposure",
+      "slug": "sensitive-data-exposure",
+      "total": 17
+    },
+    {
+      "index": 11,
+      "name": "Unvalidated Redirects",
+      "slug": "unvalidated-redirects",
+      "total": 2
+    },
+    {
+      "index": 12,
+      "name": "Vulnerable Components",
+      "slug": "vulnerable-components",
+      "total": 7
+    },
+    {
+      "index": 13,
+      "name": "XSS",
+      "slug": "xss",
+      "total": 2
+    }
+  ],
+  "from": "2026-11-19T09:00:00Z",
+  "game": {
+    "ends_at": "2026-11-19T11:00:00Z",
+    "name": "Golden Game",
+    "slug": "golden-game",
+    "starts_at": "2026-11-19T09:00:00Z",
+    "state": "running"
+  },
+  "generated_at": "2026-11-19T09:40:00Z",
+  "podium": [
+    {
+      "categories": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "first_bloods": 3,
+      "last_solve": "2026-11-19T09:20:00Z",
+      "name": "Zoë de Vries",
+      "online": false,
+      "participant": 1,
+      "rank": 1,
+      "score": 1500,
+      "solved": 3
+    },
+    {
+      "categories": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "first_bloods": 1,
+      "last_solve": "2026-11-19T09:12:00Z",
+      "name": "Bram O'Neill",
+      "online": false,
+      "participant": 2,
+      "rank": 2,
+      "score": 350,
+      "solved": 2
+    },
+    {
+      "categories": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "first_bloods": 1,
+      "last_solve": "2026-11-19T09:30:00Z",
+      "name": "Chen Li",
+      "online": false,
+      "participant": 3,
+      "rank": 3,
+      "score": 350,
+      "solved": 2
+    }
+  ],
+  "rows": [
+    {
+      "categories": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "first_bloods": 3,
+      "last_solve": "2026-11-19T09:20:00Z",
+      "name": "Zoë de Vries",
+      "online": false,
+      "participant": 1,
+      "rank": 1,
+      "score": 1500,
+      "solved": 3
+    },
+    {
+      "categories": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "first_bloods": 1,
+      "last_solve": "2026-11-19T09:12:00Z",
+      "name": "Bram O'Neill",
+      "online": false,
+      "participant": 2,
+      "rank": 2,
+      "score": 350,
+      "solved": 2
+    },
+    {
+      "categories": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "first_bloods": 1,
+      "last_solve": "2026-11-19T09:30:00Z",
+      "name": "Chen Li",
+      "online": false,
+      "participant": 3,
+      "rank": 3,
+      "score": 350,
+      "solved": 2
+    }
+  ],
+  "series": [
+    {
+      "name": "Zoë de Vries",
+      "participant": 1,
+      "points": [
+        {
+          "at": "2026-11-19T09:01:00Z",
+          "score": 0
+        },
+        {
+          "at": "2026-11-19T09:10:00Z",
+          "score": 100
+        },
+        {
+          "at": "2026-11-19T09:20:00Z",
+          "score": 800
+        },
+        {
+          "at": "2026-11-19T09:20:00Z",
+          "score": 1500
+        }
+      ]
+    },
+    {
+      "name": "Bram O'Neill",
+      "participant": 2,
+      "points": [
+        {
+          "at": "2026-11-19T09:02:00Z",
+          "score": 0
+        },
+        {
+          "at": "2026-11-19T09:12:00Z",
+          "score": 100
+        },
+        {
+          "at": "2026-11-19T09:12:00Z",
+          "score": 350
+        }
+      ]
+    },
+    {
+      "name": "Chen Li",
+      "participant": 3,
+      "points": [
+        {
+          "at": "2026-11-19T09:03:00Z",
+          "score": 0
+        },
+        {
+          "at": "2026-11-19T09:15:00Z",
+          "score": 100
+        },
+        {
+          "at": "2026-11-19T09:30:00Z",
+          "score": 350
+        }
+      ]
+    }
+  ],
+  "ticker": [
+    {
+      "at": "2026-11-19T09:30:00Z",
+      "challenge": "loginAdminChallenge",
+      "challenge_name": "Login Admin",
+      "difficulty": 2,
+      "first_blood": false,
+      "name": "Chen Li",
+      "participant": 3,
+      "points": 250
+    },
+    {
+      "at": "2026-11-19T09:20:00Z",
+      "challenge": "nullByteChallenge",
+      "challenge_name": "Poison Null Byte",
+      "difficulty": 4,
+      "first_blood": true,
+      "name": "Zoë de Vries",
+      "participant": 1,
+      "points": 700
+    },
+    {
+      "at": "2026-11-19T09:20:00Z",
+      "challenge": "easterEggLevelOneChallenge",
+      "challenge_name": "Easter Egg",
+      "difficulty": 4,
+      "first_blood": true,
+      "name": "Zoë de Vries",
+      "participant": 1,
+      "points": 700
+    },
+    {
+      "at": "2026-11-19T09:15:00Z",
+      "challenge": "directoryListingChallenge",
+      "challenge_name": "Confidential Document",
+      "difficulty": 1,
+      "first_blood": true,
+      "name": "Chen Li",
+      "participant": 3,
+      "points": 100
+    },
+    {
+      "at": "2026-11-19T09:12:00Z",
+      "challenge": "loginAdminChallenge",
+      "challenge_name": "Login Admin",
+      "difficulty": 2,
+      "first_blood": true,
+      "name": "Bram O'Neill",
+      "participant": 2,
+      "points": 250
+    },
+    {
+      "at": "2026-11-19T09:12:00Z",
+      "challenge": "scoreBoardChallenge",
+      "challenge_name": "Score Board",
+      "difficulty": 1,
+      "first_blood": false,
+      "name": "Bram O'Neill",
+      "participant": 2,
+      "points": 100
+    },
+    {
+      "at": "2026-11-19T09:10:00Z",
+      "challenge": "scoreBoardChallenge",
+      "challenge_name": "Score Board",
+      "difficulty": 1,
+      "first_blood": true,
+      "name": "Zoë de Vries",
+      "participant": 1,
+      "points": 100
+    }
+  ],
+  "to": "2026-11-19T09:40:00Z",
+  "total": 98
+}

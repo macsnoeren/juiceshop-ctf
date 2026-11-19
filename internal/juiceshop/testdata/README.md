@@ -1,7 +1,7 @@
 # Juice Shop fixtures
 
 Captured from **`bkimminich/juice-shop:v20.3.0`** on 2026-11-18, the version
-pinned in `docker/docker-compose.yml`. The client tests (`../client_test.go`)
+pinned in `deploy/docker/Dockerfile.node`. The client tests (`../client_test.go`)
 serve these files from an `httptest` server, so the agent is tested against
 what that version really says, not against what the design assumed it says.
 

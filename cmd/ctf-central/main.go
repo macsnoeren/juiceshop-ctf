@@ -1,60 +1,55 @@
-// Command ctf-central receives the agents' reports and serves the leaderboard
-// (DESIGN.md §7, §8). See internal/central.
+// Command ctf-central admits students into games, receives their VMs'
+// reports and serves the boards and the operator's admin
+// (docs/VERSION-1-1.md §2, §5, §6). See internal/central.
 //
-//	ctf-central                                    serve
-//	ctf-central seed -instance ID -token T [-label L]
-//	                                               create or update an instance with a GIVEN token
-//	ctf-central -healthcheck | -version
+//	ctf-central                     serve
+//	ctf-central -healthcheck        check the running server, exit 0 or 1
+//	ctf-central -version
 //
-// Configuration is environment only (DESIGN.md §9):
+// The DATABASE LEADS (VERSION-1-1.md §5.1): games, join codes, scoring,
+// titles, the time zone and the event retention are made and changed in
+// /admin/ and live in the database. The environment says only where the
+// database is and where to listen — that is all it reads:
 //
 //	CTF_DB_PATH      default /data/central.db (on the ctf-central-db volume)
-//	CTF_BASE_PATH    default "" (own hostname); /leaderboard in the docker/ test setup
-//	CTF_TITLE        default "Juice Shop CTF"
-//	CTF_TIMEZONE     default Europe/Amsterdam
 //	CTF_ADDR         default :8080
-//	CTF_SEED         "id=token,id2=token2": instances to create at start.
-//	                 For test setups, and for a deployment that makes both
-//	                 halves of each token in one place (the agent's env file
-//	                 holds it in the clear anyway). Otherwise instances and
-//	                 their tokens are made in /admin/, where the token is never
-//	                 stored in the clear anywhere.
+//	CTF_BASE_PATH    the path it is served under: default ""; /juiceshop-ctf on neo
 //	LOG_LEVEL        debug | info | warn | error
 //
-// >>> /admin/ HAS NO LOGIN OF ITS OWN. nginx must guard it (DESIGN.md §8.4).
+// 1.0's CTF_SEED, CTF_TITLE and CTF_TIMEZONE are gone; a CTF_SEED still in an
+// env file is logged and ignored, so an old env file cannot stop the server.
+//
+// /admin/ has accounts of its own (internal/central/auth.go). >>> A FRESH
+// DATABASE HAS NONE, and then <base>/admin/setup makes the first account
+// for whoever opens it first: open it yourself right after starting a new
+// server, or keep it behind an allow-list as neo's nginx does.
 package main
 
 import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 	_ "time/tzdata" // the scratch image has no zoneinfo
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/central"
-	"github.com/macsnoeren/juiceshop-ctf/internal/config"
-	"github.com/macsnoeren/juiceshop-ctf/internal/health"
-	"github.com/macsnoeren/juiceshop-ctf/internal/httpx"
-	"github.com/macsnoeren/juiceshop-ctf/internal/store"
-	"github.com/macsnoeren/juiceshop-ctf/internal/version"
+	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/config"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/health"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/version"
 )
 
 func main() {
-	env := config.FromOS()
-	dbPath := env.String("CTF_DB_PATH", "/data/central.db")
-	log := httpx.NewLogger(env.String("LOG_LEVEL", "info"))
-
-	if len(os.Args) > 1 && os.Args[1] == "seed" {
-		os.Exit(seed(dbPath, os.Args[2:]))
-	}
-
 	healthcheck := flag.Bool("healthcheck", false, "check the running server and exit 0 or 1")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+
+	env := config.FromOS()
 	addr := env.String("CTF_ADDR", ":8080")
 	base := env.BasePath("CTF_BASE_PATH", "")
 	if *showVersion {
@@ -68,16 +63,10 @@ func main() {
 		}
 		return
 	}
-
-	loc, err := time.LoadLocation(env.String("CTF_TIMEZONE", "Europe/Amsterdam"))
-	if err != nil {
-		log.Error("CTF_TIMEZONE", "err", err)
-		os.Exit(2)
-	}
-	seeds := env.String("CTF_SEED", "")
-	if err := env.Err(); err != nil {
-		log.Error(err.Error())
-		os.Exit(2)
+	log := httpx.NewLogger(env.String("LOG_LEVEL", "info"))
+	dbPath := env.String("CTF_DB_PATH", "/data/central.db")
+	if _, set := os.LookupEnv("CTF_SEED"); set {
+		log.Warn("CTF_SEED is set but no longer used: games and join codes are made in /admin/ (1.1)")
 	}
 
 	st, err := store.Open(dbPath)
@@ -86,61 +75,34 @@ func main() {
 		os.Exit(1)
 	}
 	defer st.Close()
-
-	if seeds != "" {
-		log.Warn("CTF_SEED is set: creating instances with tokens from the environment")
-		for _, pair := range strings.Split(seeds, ",") {
-			id, tok, ok := strings.Cut(strings.TrimSpace(pair), "=")
-			if !ok {
-				log.Error("CTF_SEED entries are id=token", "entry", id)
-				os.Exit(2)
-			}
-			if err := st.SeedInstance(id, "seeded", tok, time.Now()); err != nil {
-				log.Error("seeding failed", "instance", id, "err", err)
-				os.Exit(2)
-			}
-			log.Info("instance seeded", "instance", id)
-		}
-	}
-
-	srv, err := central.New(central.Config{
-		BasePath: base,
-		Title:    env.String("CTF_TITLE", "Juice Shop CTF"),
-		Location: loc,
-	}, st, log)
+	srv, err := central.New(central.Config{BasePath: base}, st, log)
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		os.Exit(1)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	log.Info("ctf-central starting", "version", version.Version, "base", base, "db", dbPath)
+	go prune(ctx, st, log)
+	schema, _ := st.SchemaVersion()
+	log.Info("ctf-central starting", "version", version.Version, "base", base, "db", dbPath, "schema", schema)
 	if err := httpx.Serve(ctx, httpx.NewServer(addr, srv.Handler()), log); err != nil {
 		log.Error("stopped with an error", "err", err)
 		os.Exit(1)
 	}
 }
 
-func seed(dbPath string, args []string) int {
-	fs := flag.NewFlagSet("seed", flag.ExitOnError)
-	id := fs.String("instance", "", "instance id, e.g. cybersecurity-1")
-	tok := fs.String("token", "", "the token the agent will send (16+ characters)")
-	label := fs.String("label", "", "label shown in /admin/")
-	fs.Parse(args)
-	if *id == "" || *tok == "" {
-		fmt.Fprintln(os.Stderr, "usage: ctf-central seed -instance ID -token TOKEN [-label LABEL]")
-		return 2
+// prune applies the event retention at start and then once a day.
+func prune(ctx context.Context, st *store.Store, log *slog.Logger) {
+	for {
+		if n, err := st.Prune(time.Now()); err != nil {
+			log.Error("pruning old events failed", "err", err)
+		} else if n > 0 {
+			log.Info("old events deleted", "events", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(24 * time.Hour):
+		}
 	}
-	st, err := store.Open(dbPath)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	defer st.Close()
-	if err := st.SeedInstance(*id, *label, *tok, time.Now()); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	fmt.Println("instance", *id, "seeded")
-	return 0
 }

@@ -1,40 +1,88 @@
-{{define "chead"}}<!doctype html>
+{{/* The parts every page of ctf-central shares. The look is Juice Shop's own
+     default theme (bluegrey-lightgreen, measured from 20.3.0's styles.css):
+     the blue-grey bar, dark cards, pill buttons, green accents, blue
+     difficulty stars. The colours are in static/style.css; nothing here may
+     carry a style attribute (the CSP forbids it), so the SVG below uses
+     presentation attributes only. */}}
+
+{{define "head"}}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#4f6f7a">
 <title>{{.}}</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M8 12l4-7h8l4 7v16a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2z' fill='%2370e000'/%3E%3Cpath d='M13 15v10M13 15h7l-2 3 2 3h-7' fill='%23121316' stroke='%23121316' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="{{path "/static/style.css"}}">
 </head>
 {{end}}
 
+{{/* The CTF's mark: a juice carton with a flag on it. Our own drawing, not
+     Juice Shop's logo. */}}
+{{define "mark"}}<svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M21 1.5l-2.6 7" stroke="#e8ecef" stroke-width="1.8" stroke-linecap="round"/><path d="M8 12l4-7h8l4 7v16a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2z" fill="#70e000"/><path d="M8 12h16" stroke="#50a400" stroke-width="1.5"/><path d="M13 15v10M13 15h7l-2 3 2 3h-7" fill="#121316" stroke="#121316" stroke-width="1.6" stroke-linejoin="round"/></svg>{{end}}
+
+{{/* Difficulty as Juice Shop's score board shows it: a blue star with the
+     number in it. */}}
+{{define "diff"}}<span class="diff" title="difficulty {{.}} of 6" aria-label="difficulty {{.}}">{{.}}</span>{{end}}
+
 {{define "nav"}}
-<header class="brand"><span class="logo" aria-hidden="true">◆</span> {{.}}
-  <nav><a href="{{path "/"}}">Leaderboard</a><a href="{{path "/beamer"}}">Beamer</a></nav>
+<header class="appbar">
+  <a class="home" href="{{path "/"}}">{{template "mark"}}<span class="name">{{.Title}}</span></a>
+  <nav aria-label="Pages">
+    {{if .Game}}
+    <a class="tbtn" href="{{.GBase}}">Leaderboard</a>
+    <a class="tbtn" href="{{.GBase}}beamer">Beamer</a>
+    {{end}}
+    <a class="tbtn" href="{{path "/"}}">All games</a>
+  </nav>
 </header>
 {{end}}
 
-{{define "boardrows"}}
-{{range .Rows}}
-<tr{{if eq .Rank 1}} class="top1"{{end}}>
+{{define "gamestate"}}
+<p class="game-state">
+  {{if .Ended}}<span class="badge done">Final result</span>
+  {{else if eq .State "running"}}<span class="badge live">Live</span>
+  {{else}}<span class="badge">Open for joining</span>{{end}}
+  {{if and .Game.EndsAt (not .Ended)}}<span class="muted">ends {{datetime .Game.EndsAt}}</span>{{end}}
+  {{if and .Game.StartsAt (not .Ended)}}<span class="muted">starts {{datetime .Game.StartsAt}}</span>{{end}}
+</p>
+{{end}}
+
+{{/* The category bar of one row: rects sized in challenges, on an axis of
+     every challenge. A <title> per part names the category for hover and
+     screen readers; the numbers are also in the row itself. */}}
+{{define "catbar"}}<svg class="catbar" viewBox="0 0 {{.Total}} 10" preserveAspectRatio="none" role="img" aria-label="{{.Solved}} of {{.Total}} by category"><rect class="track" x="0" y="0" width="{{.Total}}" height="10"/>{{range catbar .Counts .Cats}}<rect class="cat-{{.Index}}" x="{{.X}}" y="0" width="{{.W}}" height="10"><title>{{.Name}}: {{.W}} of {{.Total}}</title></rect>{{end}}</svg>{{end}}
+
+{{define "podium"}}
+{{range .B.Podium}}
+<a class="step place-{{.Rank}}" href="{{$.GBase}}p/{{.Participant}}" data-pid="{{.Participant}}">
+  <span class="medal" aria-hidden="true">{{.Rank}}</span>
+  <span class="who">{{.Name}}</span>
+  <span class="pts">{{.Score}}</span>
+</a>
+{{else}}<p class="muted empty">The podium fills as soon as someone scores.</p>{{end}}
+{{end}}
+
+{{define "rows"}}
+{{range .B.Rows}}
+<tr data-pid="{{.Participant}}" data-score="{{.Score}}"{{if le .Rank 3}} class="top{{.Rank}}"{{end}}>
   <td class="rank">{{.Rank}}</td>
-  <td><span class="dot{{if .Online}} on{{end}}" title="{{if .Online}}online{{else}}offline{{end}}"></span><a href="{{path "/p/"}}{{.ParticipantID}}">{{.Name}}</a></td>
-  <td class="n">{{.Score}}</td>
-  <td class="n">{{.Solved}}/{{.Total}}</td>
-  <td class="n hide-narrow">{{clock .LastSolve}}</td>
+  <td class="name"><span class="dot{{if .Online}} on{{end}}" title="{{if .Online}}online{{else}}offline{{end}}"></span><a class="plain" href="{{$.GBase}}p/{{.Participant}}">{{.Name}}</a>{{if .FirstBloods}} <span class="blood" title="first to solve {{.FirstBloods}} challenge(s)">✦{{.FirstBloods}}</span>{{end}}</td>
+  <td class="n pts">{{.Score}}</td>
+  <td class="n hide-narrow">{{.Solved}}/{{$.B.Total}}</td>
+  <td class="bar hide-narrow">{{template "catbar" (bar .Categories $.B.Categories $.B.Total .Solved)}}</td>
 </tr>
 {{else}}
-<tr><td colspan="5" class="empty">No participants yet. As soon as a student signs up on their instance, they appear here.</td></tr>
+<tr><td colspan="5" class="empty">Nobody has joined yet. As soon as a student joins from their VM, they appear here.</td></tr>
 {{end}}
 {{end}}
 
-{{define "board"}}
-<div class="table-wrap">
-<table id="board" class="board" data-api="{{path "/api/v1/leaderboard"}}" data-base="{{path ""}}">
-  <thead><tr><th>#</th><th>Name</th><th class="n">Points</th><th class="n">Solved</th><th class="n hide-narrow">Last solve</th></tr></thead>
-  <tbody>{{template "boardrows" .}}</tbody>
-</table>
-</div>
-<p class="updated" id="updated">Updates every 10 seconds</p>
+{{define "ticker"}}
+{{range .B.Ticker}}
+<li{{if .FirstBlood}} class="first"{{end}}><time>{{hm .At}}</time>
+  <a class="plain strong" href="{{$.GBase}}p/{{.Participant}}">{{.Name}}</a>
+  <a class="plain muted" href="{{$.GBase}}c/{{.Challenge}}">{{.ChallengeName}}</a>
+  {{template "diff" .Difficulty}}
+  {{if .FirstBlood}}<span class="badge blood">first blood</span>{{end}}</li>
+{{else}}<li class="muted">Nothing solved yet.</li>{{end}}
 {{end}}

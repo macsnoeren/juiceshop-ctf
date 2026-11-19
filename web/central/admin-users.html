@@ -1,0 +1,81 @@
+{{define "admin-users"}}{{template "head" (print "Users · " .Title)}}
+<body>
+{{template "anav" .}}
+<main>
+<h1>Users</h1>
+{{with .Flash}}
+  {{if .Error}}<p class="alert error" role="alert">{{.Error}}</p>{{end}}
+  {{if .Message}}<p class="alert ok" role="status">{{.Message}}</p>{{end}}
+{{end}}
+<section class="card">
+  <p class="hint">Every user can do everything in admin, including adding and deleting users.</p>
+  <div class="table-wrap">
+  <table class="list users">
+    <thead><tr><th>User</th><th class="hide-narrow">Added</th><th>Last login</th><th class="n hide-narrow">Sessions</th><th></th></tr></thead>
+    <tbody>
+    {{range .Users}}
+    <tr>
+      <td><strong>{{.Username}}</strong>{{if eq .Username $.Me}} <span class="badge live">you</span>{{end}}</td>
+      <td class="hide-narrow muted">{{datetime (ptr .CreatedAt)}}{{if .CreatedBy}} by {{.CreatedBy}}{{else}} (setup){{end}}</td>
+      <td class="muted">{{since .LastLoginAt}}</td>
+      <td class="n hide-narrow">{{.Sessions}}</td>
+      <td class="actions">
+        {{if ne .Username $.Me}}
+        <details class="inline"><summary class="button small secondary">New password…</summary>
+          <form method="post" action="{{path "/admin/users/"}}{{.ID}}/password"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+            <label>New password for {{.Username}} <input name="password" type="password" required minlength="{{$.MinPw}}" autocomplete="new-password"></label>
+            <label>Again <input name="password2" type="password" required minlength="{{$.MinPw}}" autocomplete="new-password"></label>
+            <p class="hint">They are logged out everywhere.</p>
+            <button class="small" type="submit">Set the password</button></form></details>
+        <details class="inline"><summary class="button small danger-outline">Delete…</summary>
+          <form method="post" action="{{path "/admin/users/"}}{{.ID}}/delete"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+            <label>Type <strong>{{.Username}}</strong> to delete this account <input name="confirm" autocomplete="off" required></label>
+            <button class="small danger" type="submit">Delete</button></form></details>
+        {{end}}
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<div class="board-grid even">
+<section class="card">
+  <h2>Add a user</h2>
+  <form method="post" action="{{path "/admin/users"}}">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label for="nu">Username</label>
+    <input id="nu" name="username" required minlength="2" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false">
+    <label for="np">Password</label>
+    <input id="np" name="password" type="password" required minlength="{{.MinPw}}" autocomplete="new-password">
+    <label for="np2">The same password again</label>
+    <input id="np2" name="password2" type="password" required minlength="{{.MinPw}}" autocomplete="new-password">
+    <p class="hint">At least {{.MinPw}} characters. Tell it to them in person; they can change it here themselves.</p>
+    <p class="buttons"><button type="submit">Add the user</button></p>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Your account: {{.Me}}</h2>
+  <form method="post" action="{{path "/admin/account/password"}}">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label for="cur">Current password</label>
+    <input id="cur" name="current" type="password" required autocomplete="current-password">
+    <label for="mp">New password</label>
+    <input id="mp" name="password" type="password" required minlength="{{.MinPw}}" autocomplete="new-password">
+    <label for="mp2">The same password again</label>
+    <input id="mp2" name="password2" type="password" required minlength="{{.MinPw}}" autocomplete="new-password">
+    <p class="buttons"><button type="submit">Change my password</button></p>
+  </form>
+  <form class="sep" method="post" action="{{path "/admin/account/sessions"}}">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <p class="hint">Logged in on a computer you no longer use, or kept logged in somewhere by mistake?</p>
+    <button type="submit" class="secondary">Log out everywhere else</button>
+  </form>
+</section>
+</div>
+</main>
+</body>
+</html>
+{{end}}

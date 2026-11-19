@@ -1,0 +1,111 @@
+# Juice Shop CTF 1.1, the test setup (docs/VERSION-1-1.md §7; TASK-1-1 T1.1-52):
+# the central server and three students' VMs, each with its "Kali".
+#
+#   ./start.sh            build, start, wait until healthy, print the addresses
+#   ./stop.sh [--wipe]    stop (--wipe: and forget every game and VM)
+#
+#            uplink (stands in for VirtualBox's NAT: the way to neo)
+#   ctf-central ────────┬──────────────┬──────────────┐
+#                      vm1            vm2            vm3        juiceshop-ctf, one container each
+#                       │ lab1         │ lab2         │ lab3    INTERNAL: stands in for host-only
+#                     kali1          kali2          kali3       curl, where the student attacks from
+#
+# Each lab network has exactly one VM and its Kali on it, as in the lab: a
+# student's Kali reaches only that student's VM. The VMs are ALSO published
+# on 127.0.0.1 so you can look at them in a browser; that is a convenience of
+# this setup, not part of the lab.
+#
+# >>> /juiceshop-ctf/admin/ has accounts, and a fresh database has none: the
+# first visitor gets the setup page and becomes the admin. Here that is you,
+# because everything is published on 127.0.0.1 only; on neo nginx's
+# allow-list makes sure of it.
+#
+# Ports: CTF_CENTRAL_PORT (8090), CTF_VM_PORT_1..3 (8091..8093).
+
+# >>> A project name of its own. 1.0's setup was the project "juiceshop-ctf",
+# with services of the same names (ctf-central) and the same volume
+# (ctf-central-db): under that name, `up` replaced a running 1.0 central server
+# and `stop.sh --wipe` removed the 1.0 containers as orphans and deleted its
+# database. Do not change it back.
+name: juiceshop-ctf-lab
+
+x-vm: &vm
+  image: juiceshop-ctf:latest
+  pull_policy: never
+  # Exactly the run line of VERSION-1-1.md §3.1.
+  cap_drop: [ALL]
+  cap_add: [SETUID, SETGID]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ["/juice-shop/logs:uid=65532,gid=65532,mode=0755"]
+  mem_limit: 768m
+  pids_limit: 256
+  restart: unless-stopped
+  depends_on: [ctf-central]
+
+x-vm-env: &vm-env
+  CTF_CENTRAL_URL: http://ctf-central:8080/juiceshop-ctf
+  CTF_TIMEZONE: Europe/Amsterdam
+  # Faster than production (30 s / 60 s / 5 min), so a test does not wait:
+  # an operator's remove reaches a VM with its next report.
+  POLL_INTERVAL: 5s
+  REPORT_INTERVAL: 10s
+  REPORT_BACKOFF_MAX: 10s
+
+x-kali: &kali
+  image: curlimages/curl:8.10.1
+  entrypoint: ["sleep", "infinity"]
+  init: true
+  restart: unless-stopped
+
+services:
+  ctf-central:
+    build: { context: ../.., dockerfile: deploy/docker/Dockerfile.central, args: { VERSION: "${VERSION:-dev}" } }
+    image: juiceshop-ctf-central:latest
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      CTF_BASE_PATH: /juiceshop-ctf
+    volumes: [ctf-central-db:/data]
+    tmpfs: [/tmp]
+    networks: [uplink]
+    ports: ["127.0.0.1:${CTF_CENTRAL_PORT:-8090}:8080"]
+    restart: unless-stopped
+
+  vm1:
+    <<: *vm
+    build: { context: ../.., dockerfile: deploy/docker/Dockerfile.node, args: { VERSION: "${VERSION:-dev}" } }
+    pull_policy: build
+    environment: *vm-env
+    volumes: [vm1:/var/lib/ctf]
+    networks: [uplink, lab1]
+    ports: ["127.0.0.1:${CTF_VM_PORT_1:-8091}:80"]
+  kali1: { <<: *kali, networks: [lab1] }
+
+  vm2:
+    <<: *vm
+    environment: *vm-env
+    volumes: [vm2:/var/lib/ctf]
+    networks: [uplink, lab2]
+    ports: ["127.0.0.1:${CTF_VM_PORT_2:-8092}:80"]
+  kali2: { <<: *kali, networks: [lab2] }
+
+  vm3:
+    <<: *vm
+    environment: *vm-env
+    volumes: [vm3:/var/lib/ctf]
+    networks: [uplink, lab3]
+    ports: ["127.0.0.1:${CTF_VM_PORT_3:-8093}:80"]
+  kali3: { <<: *kali, networks: [lab3] }
+
+networks:
+  uplink: {}
+  lab1: { internal: true }
+  lab2: { internal: true }
+  lab3: { internal: true }
+
+volumes:
+  ctf-central-db: {}
+  vm1: {}
+  vm2: {}
+  vm3: {}

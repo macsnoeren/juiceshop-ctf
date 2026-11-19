@@ -1,0 +1,122 @@
+{{define "admin-game"}}{{template "head" (print .G.Name " · admin")}}
+<body>
+{{template "anav" .}}
+<main>
+<p class="buttons back"><a class="button small secondary" href="{{path "/admin/"}}">← All games</a></p>
+{{with .Flash}}
+  {{if .Error}}<p class="alert error" role="alert">{{.Error}}</p>{{end}}
+  {{if .Message}}<p class="alert ok" role="status">{{.Message}}</p>{{end}}
+  {{if .Code}}
+  <section class="card codecard">
+    <h2>Join code — shown only now</h2>
+    <p class="joincode">{{code .Code}}</p>
+    <p>Put it on the beamer. Students type it with their name on their own VM's CTF page. It is stored only as a hash:
+       once you leave this page it cannot be shown again, only replaced by a new one.</p>
+  </section>
+  {{end}}
+{{end}}
+
+<div class="game-head">
+  <div>
+    <h1>{{.G.Name}}</h1>
+    <p class="game-state"><span class="badge state-{{.State}}">{{.State}}</span>
+       {{if .G.Public}}<span class="muted address">{{.BoardURL}}</span>{{else}}<span class="muted">board not public ({{if .G.BoardHidden}}hidden{{else}}draft{{end}})</span>{{end}}</p>
+  </div>
+  {{if .G.Public}}<div class="buttons">
+    <a class="button" href="{{.BoardURL}}">Open the leaderboard</a>
+    <a class="button secondary" href="{{.BoardURL}}beamer">Beamer</a>
+  </div>{{end}}
+</div>
+
+<section class="card">
+  <h2>State</h2>
+  <div class="actions">
+  {{if or (eq .G.State "draft") (eq .G.State "closed")}}
+    <form class="inline" method="post" action="{{path "/admin/games/"}}{{.G.ID}}/state"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="to" value="open"><button type="submit">Open for joining</button></form>
+  {{end}}
+  {{if ne .G.State "running"}}
+    <form class="inline" method="post" action="{{path "/admin/games/"}}{{.G.ID}}/state"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="to" value="running"><button type="submit">Start (running)</button></form>
+  {{end}}
+    <form class="inline" method="post" action="{{path "/admin/games/"}}{{.G.ID}}/code"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="secondary" type="submit">{{if .G.HasCode}}New join code{{else}}Make a join code{{end}}</button></form>
+  </div>
+  <p class="hint">Open and running both admit students and count solves. Players: {{index .Counts "active"}} on the board,
+    {{index .Counts "hidden"}} hidden, {{index .Counts "left"}} left, {{index .Counts "removed"}} removed.</p>
+</section>
+
+<section class="card">
+  <h2>Participants</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>#</th><th>Name</th><th class="n">Points</th><th class="n">Solved</th><th>Last report</th><th class="hide-narrow">Node</th><th class="n hide-narrow" title="Juice Shop's own estimate: high means solved implausibly fast">Cheat avg / max</th><th>Flags</th><th>State</th><th></th></tr></thead>
+    <tbody>
+    {{range .Participants}}
+    <tr class="st-{{.Status}}">
+      <td class="rank">{{if .Rank}}{{.Rank}}{{end}}</td>
+      <td class="name"><span class="dot{{if online .}} on{{end}}"></span>{{.Name}}{{if .LegacyInstance}}<br><span class="muted">1.0: {{.LegacyInstance}}</span>{{end}}</td>
+      <td class="n">{{.Score}}</td>
+      <td class="n">{{.Solved}}</td>
+      <td>{{since .LastReportAt}}{{if and .LastReportAt (not .Reachable)}} <span class="badge warn">shop down</span>{{end}}{{if .RestoreFailed}} <span class="badge warn">restore failed</span>{{end}}</td>
+      <td class="hide-narrow muted">{{.NodeVersion}}{{if .NodeUID}}<br>uid {{printf "%.8s" .NodeUID}}{{end}}</td>
+      <td class="n hide-narrow">{{pct .AvgCheat}} / {{pct .MaxCheat}}</td>
+      <td>{{range .Flags}}<span class="badge flag" title="{{datetime (ptr .At)}}">{{.Text}}</span> {{end}}</td>
+      <td><span class="badge st-{{.Status}}">{{.Status}}</span>{{if .LeftAt}}<br><span class="muted">{{datetime .LeftAt}}</span>{{end}}</td>
+      <td class="actions">
+        {{if not .LeftAt}}
+        <form class="inline" method="post" action="{{path "/admin/participants/"}}{{.ID}}/{{if .Hidden}}show{{else}}hide{{end}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="small secondary" type="submit">{{if .Hidden}}Show{{else}}Hide{{end}}</button></form>
+        <details class="inline"><summary class="button small danger-outline">Remove…</summary>
+          <form method="post" action="{{path "/admin/participants/"}}{{.ID}}/remove"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+            <label>Type <strong>{{$.G.Name}}</strong> to remove {{.Name}}: off the board, token stopped, VM told to forget</label>
+            <input name="confirm" autocomplete="off" required><button class="small danger" type="submit">Remove</button></form></details>
+        {{else}}
+        <form class="inline" method="post" action="{{path "/admin/participants/"}}{{.ID}}/delete"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="small secondary" type="submit">Delete</button></form>
+        {{end}}
+      </td>
+    </tr>
+    {{else}}<tr><td colspan="10" class="empty">Nobody has joined yet.</td></tr>{{end}}
+    </tbody>
+  </table>
+  </div>
+  <p class="buttons"><a class="button secondary" href="{{path "/admin/games/"}}{{.G.ID}}/export.csv">Export CSV</a>
+     <a class="button secondary" href="{{path "/admin/events"}}?game={{.G.ID}}">All events of this game</a></p>
+</section>
+
+<section class="card">
+  <h2>Latest events</h2>
+  {{template "eventlist" .Events}}
+</section>
+
+<details class="card">
+  <summary>Edit the game</summary>
+  <form method="post" action="{{path "/admin/games/"}}{{.G.ID}}/edit">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label for="name">Name</label><input id="name" name="name" value="{{.G.Name}}" required maxlength="80">
+    <div class="row2">
+      <div><label for="starts_at">Starts</label><input id="starts_at" name="starts_at" type="datetime-local" value="{{dtlocal .G.StartsAt}}"></div>
+      <div><label for="ends_at">Ends</label><input id="ends_at" name="ends_at" type="datetime-local" value="{{dtlocal .G.EndsAt}}"></div>
+    </div>
+    {{template "scoring" .Scoring}}
+    <label class="check"><input type="checkbox" name="hidden"{{if .G.BoardHidden}} checked{{end}}> Hide the board</label>
+    <label class="check"><input type="checkbox" name="initials"{{if .G.BoardInitials}} checked{{end}}> Initials instead of names</label>
+    <p class="buttons"><button type="submit">Save</button></p>
+  </form>
+</details>
+
+<details class="card danger-zone">
+  <summary>End, clear or delete</summary>
+  <p>Each asks you to type the game's name: <strong>{{.G.Name}}</strong>.</p>
+  {{if ne .G.State "closed"}}
+  <form method="post" action="{{path "/admin/games/"}}{{.G.ID}}/state"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="to" value="closed">
+    <label>End the game: no joins, no solves counted after now, the board shows the final result.</label>
+    <input name="confirm" autocomplete="off" required placeholder="{{.G.Name}}"><button class="danger" type="submit">End game</button></form>
+  {{end}}
+  <form method="post" action="{{path "/admin/games/"}}{{.G.ID}}/clear"><input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label>Clear: delete every participant and solve, keep the game and its code. Every VM in it forgets.</label>
+    <input name="confirm" autocomplete="off" required placeholder="{{.G.Name}}"><button class="danger" type="submit">Clear game</button></form>
+  <form method="post" action="{{path "/admin/games/"}}{{.G.ID}}/delete"><input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label>Delete: clear, and then the game itself.</label>
+    <input name="confirm" autocomplete="off" required placeholder="{{.G.Name}}"><button class="danger" type="submit">Delete game</button></form>
+</details>
+</main>
+</body>
+</html>
+{{end}}

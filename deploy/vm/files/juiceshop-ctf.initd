@@ -1,0 +1,54 @@
+#!/sbin/openrc-run
+# The Juice Shop CTF on the VM: the juiceshop-ctf container, run exactly as
+# docs/VERSION-1-1.md §3.1 says (README.md "The image runs anywhere Docker
+# does"). Installed by deploy/vm/provision.sh.
+#
+# The container is CREATED here, at the first start on the student's
+# machine, not while building the VM: the image is the same for everybody,
+# and node.db (the volume juiceshop-ctf) is made empty on that first start.
+# After that `docker start` keeps the student's progress; Forget on the
+# CTF page empties it again. --restart unless-stopped brings it back after
+# a crash; this service brings it back after a reboot.
+#
+# >>> The capabilities are the image's contract: the keeper needs SETUID
+# and SETGID and nothing else, and refuses to start ctf-node otherwise.
+
+name="Juice Shop CTF"
+description="Juice Shop and ctf-node in one container"
+container=juiceshop-ctf
+image=juiceshop-ctf:vm
+
+depend() {
+	need docker
+	after net chronyd
+}
+
+start() {
+	ebegin "Starting ${name}"
+	i=0
+	until docker info >/dev/null 2>&1; do
+		i=$((i + 1))
+		if [ "$i" -ge 90 ]; then
+			eend 1 "docker is not answering"
+			return 1
+		fi
+		sleep 1
+	done
+	if ! docker container inspect "$container" >/dev/null 2>&1; then
+		docker create --name "$container" --restart unless-stopped \
+			-p 80:80 -v juiceshop-ctf:/var/lib/ctf \
+			--cap-drop ALL --cap-add SETUID --cap-add SETGID \
+			--security-opt no-new-privileges \
+			--tmpfs /juice-shop/logs:uid=65532,gid=65532,mode=0755 \
+			--log-opt max-size=10m --log-opt max-file=3 \
+			"$image" >/dev/null || { eend 1 "cannot create the container"; return 1; }
+	fi
+	docker start "$container" >/dev/null
+	eend $?
+}
+
+stop() {
+	ebegin "Stopping ${name}"
+	docker stop -t 20 "$container" >/dev/null
+	eend $?
+}
