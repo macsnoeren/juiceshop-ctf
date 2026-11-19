@@ -15,8 +15,10 @@
 # on 127.0.0.1 so you can look at them in a browser; that is a convenience of
 # this setup, not part of the lab.
 #
-# >>> /juiceshop-ctf/admin/ has no login of its own (on neo nginx guards it).
-# Here it is published on 127.0.0.1 only.
+# >>> /juiceshop-ctf/admin/ has accounts, and a fresh database has none: the
+# first visitor gets the setup page and becomes the admin. Here that is you,
+# because everything is published on 127.0.0.1 only; on neo nginx's
+# allow-list makes sure of it.
 #
 # Ports: CTF_CENTRAL_PORT (8090), CTF_VM_PORT_1..3 (8091..8093).
 

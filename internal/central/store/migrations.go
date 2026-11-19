@@ -191,4 +191,38 @@ var migrations = []string{
 		at             TEXT NOT NULL,
 		PRIMARY KEY (participant_id, kind, detail)
 	);`,
+
+	// 4 — admin accounts (users.go). Until 1.1 /admin/ had no login and nginx
+	// was the only lock; now the application has its own users, made on the
+	// setup page while there are none and on the users page after that.
+	//
+	// username is unique WITHOUT regard to case, so "Maurice" and "maurice"
+	// cannot be two accounts that look the same in the event feed. A session
+	// is stored by the SHA-256 of its cookie, like a participant token: a
+	// copy of this database logs nobody in. Deleting a user deletes their
+	// sessions (the cascade), which is what makes "delete" log them out.
+	//
+	// events.actor is who did an admin action, so that with several
+	// operators the feed says WHICH one cleared a game.
+	`CREATE TABLE users (
+		id                  INTEGER PRIMARY KEY,
+		username            TEXT NOT NULL UNIQUE COLLATE NOCASE,
+		password_hash       TEXT NOT NULL,
+		created_at          TEXT NOT NULL,
+		created_by          TEXT NOT NULL DEFAULT '',
+		password_changed_at TEXT NOT NULL,
+		last_login_at       TEXT
+	);
+	CREATE TABLE sessions (
+		token_hash   TEXT PRIMARY KEY,
+		user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_at   TEXT NOT NULL,
+		last_seen_at TEXT NOT NULL,
+		expires_at   TEXT NOT NULL,
+		remember     INTEGER NOT NULL DEFAULT 0,
+		address      TEXT NOT NULL DEFAULT '',
+		user_agent   TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX sessions_by_user ON sessions (user_id);
+	ALTER TABLE events ADD COLUMN actor TEXT NOT NULL DEFAULT '';`,
 }

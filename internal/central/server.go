@@ -14,8 +14,10 @@
 //	     <base>/admin/...              the operator pages (admin.go)
 //	GET  <base>/healthz
 //
-// /admin/ has NO login of its own: nginx guards it (decision D4). Do not
-// publish this server without that in front of it.
+// /admin/ needs an admin account (auth.go). While the database has none,
+// <base>/admin/setup makes the first one for whoever gets there first: open
+// it yourself before you publish a fresh server, or keep nginx's allow-list
+// in front of /admin/ as on neo.
 package central
 
 import (
@@ -54,6 +56,7 @@ type Server struct {
 
 	wrongCodes *window // wrong join codes per client address
 	codeJoins  *window // joins per game
+	loginFails *window // failed admin logins per address and per username
 }
 
 // The join limits (VERSION-1-1.md §5.6). Never per address alone: a school
@@ -67,7 +70,7 @@ const (
 // New returns a server on st.
 func New(cfg Config, st *store.Store, log *slog.Logger) (*Server, error) {
 	s := &Server{cfg: cfg, st: st, log: log, now: time.Now,
-		wrongCodes: newWindow(time.Minute), codeJoins: newWindow(time.Minute)}
+		wrongCodes: newWindow(time.Minute), codeJoins: newWindow(time.Minute), loginFails: newWindow(loginWindow)}
 	if err := s.reloadSettings(); err != nil {
 		return nil, err
 	}

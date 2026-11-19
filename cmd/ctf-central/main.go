@@ -19,7 +19,10 @@
 // 1.0's CTF_SEED, CTF_TITLE and CTF_TIMEZONE are gone; a CTF_SEED still in an
 // env file is logged and ignored, so an old env file cannot stop the server.
 //
-// >>> /admin/ HAS NO LOGIN OF ITS OWN. nginx must guard it (decision D4).
+// /admin/ has accounts of its own (internal/central/auth.go). >>> A FRESH
+// DATABASE HAS NONE, and then <base>/admin/setup makes the first account
+// for whoever opens it first: open it yourself right after starting a new
+// server, or keep it behind an allow-list as neo's nginx does.
 package main
 
 import (

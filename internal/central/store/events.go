@@ -18,10 +18,13 @@ const (
 	EvLeave       = "leave"
 	EvAdmin       = "admin"
 	EvLegacy      = "legacy"
+	// EvAuth is a login, a failed login, a logout, or a change to an
+	// account: who got into admin, and who tried.
+	EvAuth = "auth"
 )
 
 // EventKinds is every kind, in the order the filter shows them.
-var EventKinds = []string{EvJoin, EvJoinRefused, EvSolve, EvFlag, EvReport, EvRejected, EvCommand, EvLeave, EvAdmin, EvLegacy}
+var EventKinds = []string{EvJoin, EvJoinRefused, EvSolve, EvFlag, EvReport, EvRejected, EvCommand, EvLeave, EvAdmin, EvAuth, EvLegacy}
 
 // Event is one line of the feed. The feed is the operator's, so it may name
 // participants; it never holds a token, a join code or a cookie.
@@ -33,6 +36,9 @@ type Event struct {
 	ParticipantID int64
 	Address       string
 	Text          string
+	// Actor is the admin user who did it, for kinds admin and auth; empty
+	// for what VMs do.
+	Actor string
 
 	// Filled in by Events, for display.
 	GameName        string
@@ -54,8 +60,8 @@ func addEvent(x execer, e Event) error {
 	if len(e.Text) > 500 {
 		e.Text = e.Text[:500]
 	}
-	_, err := x.Exec(`INSERT INTO events (at, kind, game_id, participant_id, address, text) VALUES (?, ?, ?, ?, ?, ?)`,
-		ts(e.At), e.Kind, nullID(e.GameID), nullID(e.ParticipantID), e.Address, e.Text)
+	_, err := x.Exec(`INSERT INTO events (at, kind, game_id, participant_id, address, text, actor) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		ts(e.At), e.Kind, nullID(e.GameID), nullID(e.ParticipantID), e.Address, e.Text, e.Actor)
 	return err
 }
 
@@ -72,7 +78,7 @@ type EventFilter struct {
 
 // Events returns the feed, newest first.
 func (s *Store) Events(f EventFilter) ([]Event, error) {
-	q := `SELECT e.id, e.at, e.kind, COALESCE(e.game_id, 0), COALESCE(e.participant_id, 0), e.address, e.text,
+	q := `SELECT e.id, e.at, e.kind, COALESCE(e.game_id, 0), COALESCE(e.participant_id, 0), e.address, e.text, e.actor,
 		COALESCE(g.name, ''), COALESCE(p.name, '')
 		FROM events e LEFT JOIN games g ON g.id = e.game_id LEFT JOIN participants p ON p.id = e.participant_id`
 	var where []string
@@ -103,7 +109,7 @@ func (s *Store) Events(f EventFilter) ([]Event, error) {
 	for rows.Next() {
 		var e Event
 		var at string
-		if err := rows.Scan(&e.ID, &at, &e.Kind, &e.GameID, &e.ParticipantID, &e.Address, &e.Text, &e.GameName, &e.ParticipantName); err != nil {
+		if err := rows.Scan(&e.ID, &at, &e.Kind, &e.GameID, &e.ParticipantID, &e.Address, &e.Text, &e.Actor, &e.GameName, &e.ParticipantName); err != nil {
 			return nil, err
 		}
 		e.At = parseTS(at)
@@ -128,6 +134,11 @@ func (s *Store) Prune(now time.Time) (int, error) {
 	}
 	n, _ := res.RowsAffected()
 	if _, err := s.db.Exec(`DELETE FROM commands WHERE created_at < ?`, cut); err != nil {
+		return 0, err
+	}
+	// Expired admin sessions: they no longer log anyone in, so keeping
+	// them only keeps addresses and browsers around.
+	if _, err := s.db.Exec(`DELETE FROM sessions WHERE expires_at < ?`, ts(now)); err != nil {
 		return 0, err
 	}
 	return int(n), nil

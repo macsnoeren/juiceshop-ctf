@@ -1,18 +1,20 @@
 {{define "challenge"}}{{template "head" (print .C.Challenge.Name " · " .Game.Name)}}
 <body>
-<main>
 {{template "nav" .}}
+<main>
 {{with .C}}
+<p class="buttons back"><a class="button small secondary" href="{{$.GBase}}">← {{$.Game.Name}}</a>
+  <a class="button small secondary" href="{{$.GBase}}cat/{{.Challenge.CategorySlug}}">{{.Challenge.Category}}</a></p>
 <section class="card">
-  <p class="eyebrow"><a href="{{$.GBase}}">{{$.Game.Name}}</a> · <a href="{{$.GBase}}cat/{{.Challenge.CategorySlug}}">{{.Challenge.Category}}</a></p>
+  <p class="eyebrow">{{.Challenge.Category}}</p>
   <h1>{{.Challenge.Name}}</h1>
-  <p><span class="stars">{{stars .Challenge.Difficulty}}</span> · {{.Challenge.Points}} points</p>
+  <p class="meta">{{template "diff" .Challenge.Difficulty}} <span>{{.Challenge.Points}} points</span></p>
 </section>
 <section class="card">
   <h2>Solved by</h2>
   {{if .Solvers}}
   <ol class="timeline">
-    {{range .Solvers}}<li{{if .FirstBlood}} class="first"{{end}}><span class="rank">{{.Order}}</span><a href="{{$.GBase}}p/{{.Participant}}">{{.Name}}</a> <time>{{hm .At}}</time>
+    {{range .Solvers}}<li{{if .FirstBlood}} class="first"{{end}}><span class="rank">{{.Order}}</span><a class="plain strong" href="{{$.GBase}}p/{{.Participant}}">{{.Name}}</a> <time>{{hm .At}}</time>
       {{if .FirstBlood}}<span class="badge blood">first blood</span>{{end}}</li>{{end}}
   </ol>
   {{else}}<p class="muted">Nobody has solved this challenge yet.</p>{{end}}

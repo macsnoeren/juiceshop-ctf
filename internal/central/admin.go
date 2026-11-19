@@ -14,10 +14,12 @@ import (
 	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
 )
 
-// The operator pages (VERSION-1-1.md §5.2–§5.4). nginx guards <base>/admin/
-// with an IP allow-list and htpasswd (decision D4); this code adds CSRF
-// protection on every form, so a page in the operator's browser cannot make
-// them clear a game. Every action is written to the event feed, once.
+// The operator pages (VERSION-1-1.md §5.2–§5.4). Every one of them needs a
+// logged-in admin account (auth.go; the setup page makes the first), and
+// every form carries a CSRF token as well, so a page in the operator's
+// browser cannot make them clear a game. Every action is written to the
+// event feed, once, with the account that did it. On neo nginx keeps its IP
+// allow-list in front of <base>/admin/ as a second lock.
 //
 //	GET  <base>/admin/                                games, settings
 //	POST <base>/admin/games                           create (join code shown once)
@@ -37,19 +39,39 @@ const adminCSRFCookie = "ctf_admin_csrf"
 func (s *Server) adminRoutes(mux *http.ServeMux) {
 	b := s.cfg.BasePath + "/admin"
 	mux.HandleFunc("GET "+b, func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, b+"/", http.StatusFound) })
-	mux.HandleFunc("GET "+b+"/{$}", func(w http.ResponseWriter, r *http.Request) { s.adminHome(w, r, http.StatusOK, "") })
-	mux.HandleFunc("POST "+b+"/games", s.csrf(s.handleCreateGame))
-	mux.HandleFunc("GET "+b+"/games/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET "+b+"/{$}", s.requireUser(func(w http.ResponseWriter, r *http.Request) { s.adminHome(w, r, http.StatusOK, "") }))
+	mux.HandleFunc("POST "+b+"/games", s.action(s.handleCreateGame))
+	mux.HandleFunc("GET "+b+"/games/{id}", s.requireUser(func(w http.ResponseWriter, r *http.Request) {
 		if g, ok := s.adminGame(w, r); ok {
 			s.gamePage(w, r, g, http.StatusOK, flash{})
 		}
-	})
-	mux.HandleFunc("POST "+b+"/games/{id}/{action}", s.csrf(s.handleGameAction))
-	mux.HandleFunc("GET "+b+"/games/{id}/export.csv", s.handleExport)
-	mux.HandleFunc("POST "+b+"/participants/{id}/{action}", s.csrf(s.handleParticipantAction))
-	mux.HandleFunc("GET "+b+"/events", s.handleEvents)
-	mux.HandleFunc("GET "+b+"/events.csv", s.handleEventsCSV)
-	mux.HandleFunc("POST "+b+"/settings", s.csrf(s.handleSettings))
+	}))
+	mux.HandleFunc("POST "+b+"/games/{id}/{action}", s.action(s.handleGameAction))
+	mux.HandleFunc("GET "+b+"/games/{id}/export.csv", s.requireUser(s.handleExport))
+	mux.HandleFunc("POST "+b+"/participants/{id}/{action}", s.action(s.handleParticipantAction))
+	mux.HandleFunc("GET "+b+"/events", s.requireUser(s.handleEvents))
+	mux.HandleFunc("GET "+b+"/events.csv", s.requireUser(s.handleEventsCSV))
+	mux.HandleFunc("POST "+b+"/settings", s.action(s.handleSettings))
+	s.authRoutes(mux)
+}
+
+// abase is pageBase for an admin page: the account, the CSRF token for the
+// log-out button in the bar, and which part of admin is open.
+func (s *Server) abase(w http.ResponseWriter, r *http.Request, g *store.Game) pageBase {
+	pb := s.base(g)
+	pb.CSRF = s.adminCSRF(w, r)
+	if u := currentUser(r); u != nil {
+		pb.Me = u.Username
+	}
+	switch p := r.URL.Path; {
+	case strings.Contains(p, "/admin/events"):
+		pb.Section = "events"
+	case strings.Contains(p, "/admin/users"), strings.Contains(p, "/admin/account"):
+		pb.Section = "users"
+	default:
+		pb.Section = "games"
+	}
+	return pb
 }
 
 func (s *Server) adminCSRF(w http.ResponseWriter, r *http.Request) string {
@@ -81,8 +103,13 @@ func (s *Server) csrf(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func (s *Server) admin(e store.Event) {
+// admin writes an admin action to the feed, with who did it and from where.
+func (s *Server) admin(r *http.Request, e store.Event) {
 	e.Kind = store.EvAdmin
+	if u := currentUser(r); u != nil {
+		e.Actor = u.Username
+	}
+	e.Address = httpx.ClientIP(r)
 	s.event(e)
 }
 
@@ -96,7 +123,6 @@ type flash struct {
 
 type adminHomeData struct {
 	pageBase
-	CSRF     string
 	Error    string
 	Games    []store.GameSummary
 	Settings store.Settings
@@ -125,7 +151,7 @@ func (s *Server) adminHome(w http.ResponseWriter, r *http.Request, status int, e
 		s.fail(w, err)
 		return
 	}
-	s.render(w, status, "admin", adminHomeData{pageBase: s.base(nil), CSRF: s.adminCSRF(w, r), Error: errMsg,
+	s.render(w, status, "admin", adminHomeData{pageBase: s.abase(w, r, nil), Error: errMsg,
 		Games: gs, Settings: set, Scoring: scoringRows(store.DefaultScoring), Now: s.now()})
 }
 
@@ -178,7 +204,7 @@ func (s *Server) handleCreateGame(w http.ResponseWriter, r *http.Request) {
 		s.adminHome(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.admin(store.Event{GameID: g.ID, Text: "game created: " + g.Name + " (draft)"})
+	s.admin(r, store.Event{GameID: g.ID, Text: "game created: " + g.Name + " (draft)"})
 	s.gamePage(w, r, g, http.StatusOK, flash{Message: "Game created, in draft: students cannot join until you open it.", Code: code})
 }
 
@@ -202,7 +228,6 @@ func (s *Server) adminGame(w http.ResponseWriter, r *http.Request) (*store.Game,
 
 type gamePageData struct {
 	pageBase
-	CSRF         string
 	Flash        flash
 	G            *store.Game
 	Participants []*store.Participant
@@ -229,7 +254,7 @@ func (s *Server) gamePage(w http.ResponseWriter, r *http.Request, g *store.Game,
 		s.fail(w, err)
 		return
 	}
-	s.render(w, status, "admin-game", gamePageData{pageBase: s.base(g), CSRF: s.adminCSRF(w, r), Flash: f, G: g,
+	s.render(w, status, "admin-game", gamePageData{pageBase: s.abase(w, r, g), Flash: f, G: g,
 		Participants: ps, Scoring: scoringRows(g.Scoring), Counts: counts, BoardURL: s.boardURL(r, g.Slug), Events: evs, Now: now})
 }
 
@@ -266,7 +291,7 @@ func (s *Server) handleGameAction(w http.ResponseWriter, r *http.Request) {
 			refuse(http.StatusBadRequest, err.Error())
 			return
 		}
-		s.admin(store.Event{GameID: g.ID, Text: "game edited: " + in.Name})
+		s.admin(r, store.Event{GameID: g.ID, Text: "game edited: " + in.Name})
 		back("Saved.")
 	case "state":
 		to := r.PostFormValue("to")
@@ -279,7 +304,7 @@ func (s *Server) handleGameAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		what := map[string]string{protocol.StateOpen: "opened for joining", protocol.StateRunning: "started (running)", protocol.StateClosed: "ended (closed): no joins, no solves counted, board frozen"}[to]
-		s.admin(store.Event{GameID: g.ID, Text: "game " + what})
+		s.admin(r, store.Event{GameID: g.ID, Text: "game " + what})
 		back("The game is now " + to + ".")
 	case "code":
 		code, err := s.st.RegenerateCode(g.ID)
@@ -287,7 +312,7 @@ func (s *Server) handleGameAction(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, err)
 			return
 		}
-		s.admin(store.Event{GameID: g.ID, Text: "join code regenerated; the old code no longer admits anyone"})
+		s.admin(r, store.Event{GameID: g.ID, Text: "join code regenerated; the old code no longer admits anyone"})
 		g2, _ := s.st.Game(g.ID)
 		s.gamePage(w, r, g2, http.StatusOK, flash{Message: "New join code. The old one no longer works; students who joined keep playing.", Code: code})
 	case "clear":
@@ -300,7 +325,7 @@ func (s *Server) handleGameAction(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, err)
 			return
 		}
-		s.admin(store.Event{GameID: g.ID, Text: fmt.Sprintf("game cleared: %d participants and their solves deleted, every VM told forget", n)})
+		s.admin(r, store.Event{GameID: g.ID, Text: fmt.Sprintf("game cleared: %d participants and their solves deleted, every VM told forget", n)})
 		back(fmt.Sprintf("Cleared: %d participants deleted. Their VMs forget at their next report.", n))
 	case "delete":
 		if !confirmed(r, g) {
@@ -311,7 +336,7 @@ func (s *Server) handleGameAction(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, err)
 			return
 		}
-		s.admin(store.Event{Text: "game deleted: " + g.Name + " (its VMs told forget)"})
+		s.admin(r, store.Event{Text: "game deleted: " + g.Name + " (its VMs told forget)"})
 		http.Redirect(w, r, s.cfg.BasePath+"/admin/", http.StatusSeeOther)
 	default:
 		http.NotFound(w, r)
@@ -367,7 +392,7 @@ func (s *Server) handleParticipantAction(w http.ResponseWriter, r *http.Request)
 		http.NotFound(w, r)
 		return
 	}
-	s.admin(store.Event{GameID: g.ID, ParticipantID: id, Text: "participant " + p.Name + " " + msg})
+	s.admin(r, store.Event{GameID: g.ID, ParticipantID: id, Text: "participant " + p.Name + " " + msg})
 	g2, _ := s.st.Game(g.ID)
 	s.gamePage(w, r, g2, http.StatusOK, flash{Message: p.Name + ": " + msg + "."})
 }
@@ -380,7 +405,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.reloadSettings()
-	s.admin(store.Event{Text: fmt.Sprintf("settings changed: title %q, time zone %s, events kept %d days", in.Title, in.Timezone, in.RetentionDays)})
+	s.admin(r, store.Event{Text: fmt.Sprintf("settings changed: title %q, time zone %s, events kept %d days", in.Title, in.Timezone, in.RetentionDays)})
 	http.Redirect(w, r, s.cfg.BasePath+"/admin/", http.StatusSeeOther)
 }
 
@@ -455,7 +480,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		Games  []store.GameSummary
 		Kinds  []string
 		Query  string
-	}{s.base(nil), f, evs, gs, store.EventKinds, r.URL.RawQuery})
+	}{s.abase(w, r, nil), f, evs, gs, store.EventKinds, r.URL.RawQuery})
 }
 
 func (s *Server) handleEventsCSV(w http.ResponseWriter, r *http.Request) {
@@ -469,9 +494,9 @@ func (s *Server) handleEventsCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="juiceshop-ctf-events.csv"`)
 	cw := csv.NewWriter(w)
-	cw.Write([]string{"at", "kind", "game", "participant", "address", "text"})
+	cw.Write([]string{"at", "kind", "game", "participant", "by", "address", "text"})
 	for _, e := range evs {
-		cw.Write([]string{e.At.UTC().Format(time.RFC3339), e.Kind, csvSafe(e.GameName), csvSafe(e.ParticipantName), e.Address, csvSafe(e.Text)})
+		cw.Write([]string{e.At.UTC().Format(time.RFC3339), e.Kind, csvSafe(e.GameName), csvSafe(e.ParticipantName), csvSafe(e.Actor), e.Address, csvSafe(e.Text)})
 	}
 	cw.Flush()
 }

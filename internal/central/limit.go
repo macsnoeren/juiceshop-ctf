@@ -6,7 +6,7 @@ import (
 )
 
 // window counts events per key in fixed windows of one length. It is for
-// the join limits only, where an exact sliding window buys nothing: the
+// the join and login limits, where an exact sliding window buys nothing: the
 // point is that a guesser gets twenty tries a minute, not two thousand.
 type window struct {
 	mu   sync.Mutex

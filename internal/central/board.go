@@ -169,6 +169,12 @@ type pageBase struct {
 	GBase string
 	Ended bool
 	State string
+
+	// Admin pages only (abase): the logged-in account, the CSRF token for
+	// the log-out button, and the open part of admin for the bar.
+	Me      string
+	CSRF    string
+	Section string
 }
 
 func (s *Server) base(g *store.Game) pageBase {

@@ -1,9 +1,10 @@
 {{define "admin-game"}}{{template "head" (print .G.Name " · admin")}}
 <body>
-<main>
 {{template "anav" .}}
+<main>
+<p class="buttons back"><a class="button small secondary" href="{{path "/admin/"}}">← All games</a></p>
 {{with .Flash}}
-  {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+  {{if .Error}}<p class="alert error" role="alert">{{.Error}}</p>{{end}}
   {{if .Message}}<p class="alert ok" role="status">{{.Message}}</p>{{end}}
   {{if .Code}}
   <section class="card codecard">
@@ -16,9 +17,15 @@
 {{end}}
 
 <div class="game-head">
-  <h1>{{.G.Name}}</h1>
-  <p><span class="badge state-{{.State}}">{{.State}}</span>
-     {{if .G.Public}}<a href="{{.BoardURL}}">{{.BoardURL}}</a>{{else}}<span class="muted">board not public ({{if .G.BoardHidden}}hidden{{else}}draft{{end}})</span>{{end}}</p>
+  <div>
+    <h1>{{.G.Name}}</h1>
+    <p class="game-state"><span class="badge state-{{.State}}">{{.State}}</span>
+       {{if .G.Public}}<span class="muted address">{{.BoardURL}}</span>{{else}}<span class="muted">board not public ({{if .G.BoardHidden}}hidden{{else}}draft{{end}})</span>{{end}}</p>
+  </div>
+  {{if .G.Public}}<div class="buttons">
+    <a class="button" href="{{.BoardURL}}">Open the leaderboard</a>
+    <a class="button secondary" href="{{.BoardURL}}beamer">Beamer</a>
+  </div>{{end}}
 </div>
 
 <section class="card">
@@ -45,7 +52,7 @@
     {{range .Participants}}
     <tr class="st-{{.Status}}">
       <td class="rank">{{if .Rank}}{{.Rank}}{{end}}</td>
-      <td><span class="dot{{if online .}} on{{end}}"></span>{{.Name}}{{if .LegacyInstance}}<br><span class="muted">1.0: {{.LegacyInstance}}</span>{{end}}</td>
+      <td class="name"><span class="dot{{if online .}} on{{end}}"></span>{{.Name}}{{if .LegacyInstance}}<br><span class="muted">1.0: {{.LegacyInstance}}</span>{{end}}</td>
       <td class="n">{{.Score}}</td>
       <td class="n">{{.Solved}}</td>
       <td>{{since .LastReportAt}}{{if and .LastReportAt (not .Reachable)}} <span class="badge warn">shop down</span>{{end}}{{if .RestoreFailed}} <span class="badge warn">restore failed</span>{{end}}</td>
@@ -56,7 +63,7 @@
       <td class="actions">
         {{if not .LeftAt}}
         <form class="inline" method="post" action="{{path "/admin/participants/"}}{{.ID}}/{{if .Hidden}}show{{else}}hide{{end}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="small secondary" type="submit">{{if .Hidden}}Show{{else}}Hide{{end}}</button></form>
-        <details class="inline"><summary class="small">Remove…</summary>
+        <details class="inline"><summary class="button small danger-outline">Remove…</summary>
           <form method="post" action="{{path "/admin/participants/"}}{{.ID}}/remove"><input type="hidden" name="csrf" value="{{$.CSRF}}">
             <label>Type <strong>{{$.G.Name}}</strong> to remove {{.Name}}: off the board, token stopped, VM told to forget</label>
             <input name="confirm" autocomplete="off" required><button class="small danger" type="submit">Remove</button></form></details>
@@ -69,7 +76,7 @@
     </tbody>
   </table>
   </div>
-  <p><a class="button secondary" href="{{path "/admin/games/"}}{{.G.ID}}/export.csv">Export CSV</a>
+  <p class="buttons"><a class="button secondary" href="{{path "/admin/games/"}}{{.G.ID}}/export.csv">Export CSV</a>
      <a class="button secondary" href="{{path "/admin/events"}}?game={{.G.ID}}">All events of this game</a></p>
 </section>
 
@@ -90,7 +97,7 @@
     {{template "scoring" .Scoring}}
     <label class="check"><input type="checkbox" name="hidden"{{if .G.BoardHidden}} checked{{end}}> Hide the board</label>
     <label class="check"><input type="checkbox" name="initials"{{if .G.BoardInitials}} checked{{end}}> Initials instead of names</label>
-    <button type="submit">Save</button>
+    <p class="buttons"><button type="submit">Save</button></p>
   </form>
 </details>
 

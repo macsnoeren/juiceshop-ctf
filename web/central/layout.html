@@ -1,17 +1,40 @@
+{{/* The parts every page of ctf-central shares. The look is Juice Shop's own
+     default theme (bluegrey-lightgreen, measured from 20.3.0's styles.css):
+     the blue-grey bar, dark cards, pill buttons, green accents, blue
+     difficulty stars. The colours are in static/style.css; nothing here may
+     carry a style attribute (the CSP forbids it), so the SVG below uses
+     presentation attributes only. */}}
+
 {{define "head"}}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#4f6f7a">
 <title>{{.}}</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M8 12l4-7h8l4 7v16a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2z' fill='%2370e000'/%3E%3Cpath d='M13 15v10M13 15h7l-2 3 2 3h-7' fill='%23121316' stroke='%23121316' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="{{path "/static/style.css"}}">
 </head>
 {{end}}
 
+{{/* The CTF's mark: a juice carton with a flag on it. Our own drawing, not
+     Juice Shop's logo. */}}
+{{define "mark"}}<svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M21 1.5l-2.6 7" stroke="#e8ecef" stroke-width="1.8" stroke-linecap="round"/><path d="M8 12l4-7h8l4 7v16a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2z" fill="#70e000"/><path d="M8 12h16" stroke="#50a400" stroke-width="1.5"/><path d="M13 15v10M13 15h7l-2 3 2 3h-7" fill="#121316" stroke="#121316" stroke-width="1.6" stroke-linejoin="round"/></svg>{{end}}
+
+{{/* Difficulty as Juice Shop's score board shows it: a blue star with the
+     number in it. */}}
+{{define "diff"}}<span class="diff" title="difficulty {{.}} of 6" aria-label="difficulty {{.}}">{{.}}</span>{{end}}
+
 {{define "nav"}}
-<header class="brand"><a class="home" href="{{path "/"}}"><span class="logo" aria-hidden="true">◆</span> {{.Title}}</a>
-  {{if .Game}}<nav aria-label="This game"><a href="{{.GBase}}">Board</a><a href="{{.GBase}}beamer">Beamer</a></nav>{{end}}
+<header class="appbar">
+  <a class="home" href="{{path "/"}}">{{template "mark"}}<span class="name">{{.Title}}</span></a>
+  <nav aria-label="Pages">
+    {{if .Game}}
+    <a class="tbtn" href="{{.GBase}}">Leaderboard</a>
+    <a class="tbtn" href="{{.GBase}}beamer">Beamer</a>
+    {{end}}
+    <a class="tbtn" href="{{path "/"}}">All games</a>
+  </nav>
 </header>
 {{end}}
 
@@ -44,8 +67,8 @@
 {{range .B.Rows}}
 <tr data-pid="{{.Participant}}" data-score="{{.Score}}"{{if le .Rank 3}} class="top{{.Rank}}"{{end}}>
   <td class="rank">{{.Rank}}</td>
-  <td class="name"><span class="dot{{if .Online}} on{{end}}" title="{{if .Online}}online{{else}}offline{{end}}"></span><a href="{{$.GBase}}p/{{.Participant}}">{{.Name}}</a>{{if .FirstBloods}} <span class="blood" title="first to solve {{.FirstBloods}} challenge(s)">✦{{.FirstBloods}}</span>{{end}}</td>
-  <td class="n">{{.Score}}</td>
+  <td class="name"><span class="dot{{if .Online}} on{{end}}" title="{{if .Online}}online{{else}}offline{{end}}"></span><a class="plain" href="{{$.GBase}}p/{{.Participant}}">{{.Name}}</a>{{if .FirstBloods}} <span class="blood" title="first to solve {{.FirstBloods}} challenge(s)">✦{{.FirstBloods}}</span>{{end}}</td>
+  <td class="n pts">{{.Score}}</td>
   <td class="n hide-narrow">{{.Solved}}/{{$.B.Total}}</td>
   <td class="bar hide-narrow">{{template "catbar" (bar .Categories $.B.Categories $.B.Total .Solved)}}</td>
 </tr>
@@ -57,9 +80,9 @@
 {{define "ticker"}}
 {{range .B.Ticker}}
 <li{{if .FirstBlood}} class="first"{{end}}><time>{{hm .At}}</time>
-  <a href="{{$.GBase}}p/{{.Participant}}">{{.Name}}</a>
-  <a class="muted" href="{{$.GBase}}c/{{.Challenge}}">{{.ChallengeName}}</a>
-  <span class="stars" title="{{.Difficulty}} stars">{{stars .Difficulty}}</span>
+  <a class="plain strong" href="{{$.GBase}}p/{{.Participant}}">{{.Name}}</a>
+  <a class="plain muted" href="{{$.GBase}}c/{{.Challenge}}">{{.ChallengeName}}</a>
+  {{template "diff" .Difficulty}}
   {{if .FirstBlood}}<span class="badge blood">first blood</span>{{end}}</li>
 {{else}}<li class="muted">Nothing solved yet.</li>{{end}}
 {{end}}

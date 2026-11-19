@@ -37,7 +37,14 @@
     var d = new Date(iso);
     return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
   }
-  function stars(n) { return new Array(n + 1).join('★'); }
+  // Difficulty as the templates draw it (layout.html "diff"): a blue star
+  // with the number in it.
+  function diff(n) {
+    var d = el('span', 'diff', String(n));
+    d.title = 'difficulty ' + n + ' of 6';
+    d.setAttribute('aria-label', 'difficulty ' + n);
+    return d;
+  }
 
   document.querySelectorAll('#rows tr[data-pid]').forEach(function (tr) {
     lastScore[tr.getAttribute('data-pid')] = +tr.getAttribute('data-score');
@@ -112,7 +119,7 @@
       var dot = el('span', r.online ? 'dot on' : 'dot');
       dot.title = r.online ? 'online' : 'offline';
       name.appendChild(dot);
-      name.appendChild(link(base + 'p/' + r.participant, r.name));
+      name.appendChild(link(base + 'p/' + r.participant, r.name, 'plain'));
       if (r.first_bloods) {
         name.appendChild(document.createTextNode(' '));
         var b = el('span', 'blood', '✦' + r.first_bloods);
@@ -120,7 +127,7 @@
         name.appendChild(b);
       }
       tr.appendChild(name);
-      tr.appendChild(el('td', 'n', String(r.score)));
+      tr.appendChild(el('td', 'n pts', String(r.score)));
       tr.appendChild(el('td', 'n' + (beamer ? '' : ' hide-narrow'), r.solved + '/' + d.total));
       var bar = el('td', 'bar' + (beamer ? '' : ' hide-narrow'));
       bar.appendChild(catbar(r.categories, d.categories, d.total, r.solved));
@@ -169,11 +176,9 @@
       var li = el('li', cls.trim());
       li.setAttribute('data-k', k);
       li.appendChild(el('time', '', hm(t.at)));
-      li.appendChild(link(base + 'p/' + t.participant, t.name));
-      li.appendChild(link(base + 'c/' + t.challenge, t.challenge_name, 'muted'));
-      var st = el('span', 'stars', stars(t.difficulty));
-      st.title = t.difficulty + ' stars';
-      li.appendChild(st);
+      li.appendChild(link(base + 'p/' + t.participant, t.name, 'plain strong'));
+      li.appendChild(link(base + 'c/' + t.challenge, t.challenge_name, 'plain muted'));
+      li.appendChild(diff(t.difficulty));
       if (t.first_blood) li.appendChild(el('span', 'badge blood', 'first blood'));
       frag.appendChild(li);
     });

@@ -31,7 +31,7 @@ cat <<EOF2
 Juice Shop CTF $VERSION is running.
 
   central server   http://127.0.0.1:$c/juiceshop-ctf/            the games and their boards
-  admin            http://127.0.0.1:$c/juiceshop-ctf/admin/      make a game; its join code is shown once
+  admin            http://127.0.0.1:$c/juiceshop-ctf/admin/      the first visit makes an account; then make a game
   VM 1             http://127.0.0.1:${CTF_VM_PORT_1:-8091}/ctf/
   VM 2             http://127.0.0.1:${CTF_VM_PORT_2:-8092}/ctf/
   VM 3             http://127.0.0.1:${CTF_VM_PORT_3:-8093}/ctf/

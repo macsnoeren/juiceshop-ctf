@@ -1,12 +1,12 @@
 {{define "beamer"}}{{template "head" (print .Game.Name " · " .Title)}}
 <body class="beamer">
-<main>
-<header class="beamer-head">
-  <h1>{{.Game.Name}}</h1>
+<header class="appbar beamer-head">
+  <span class="home">{{template "mark"}}<span class="name">{{.Game.Name}}</span></span>
   {{if .Ended}}<p class="countdown final">Final result</p>
   {{else if .Game.EndsAt}}<p class="countdown" id="countdown" data-ends-at="{{iso .Game.EndsAt}}">{{remaining .Game.EndsAt}}</p>
   {{else}}<p class="countdown live">Live</p>{{end}}
 </header>
+<main>
 <div id="board" data-json="{{.GBase}}board.json" data-base="{{.GBase}}" data-beamer="1"{{if .Ended}} data-final="1"{{end}}>
   <section class="podium big" id="podium" aria-label="The top three">{{template "podium" .}}</section>
   <section class="card">

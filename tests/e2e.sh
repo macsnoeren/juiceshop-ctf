@@ -6,6 +6,7 @@
 # and three VMs, each with its Kali. Every request a student makes goes from
 # that student's Kali container to their own VM, as in the lab. Then, in order:
 #
+#   setup      a fresh admin leads to the setup page; the first account logs in
 #   games      two games made in admin; VM 1 and 2 join A, VM 3 joins B
 #   solves     solves on each VM reach their own game's board, and only that
 #   board      every student stays on the board throughout — the lab's F1
@@ -100,8 +101,18 @@ shows() { page "$1" | has "$2"; }
 
 # ---- the operator side: admin, from this machine ---------------------------
 
+# Admin has accounts: a fresh central server sends every admin page to the
+# setup page, which makes the first account and logs this jar in for the rest.
 AJ="$WORK/admin.jar"; : >"$AJ"
-admin_csrf() { curl -s -b "$AJ" -c "$AJ" "$C/admin/" | sed -n 's/.*name="csrf" value="\([0-9a-f]*\)".*/\1/p' | head -1; }
+admin_csrf() { curl -s -b "$AJ" -c "$AJ" "$C/admin/${1:-}" | sed -n 's/.*name="csrf" value="\([0-9a-f]*\)".*/\1/p' | head -1; }
+admin_setup() {
+    [ "$(curl -s -o /dev/null -w '%{redirect_url}' "$C/admin/")" = "$C/admin/setup" ] || fail "a fresh admin does not lead to the setup page"
+    local code; code="$(curl -s -o /dev/null -w '%{http_code}' -b "$AJ" -c "$AJ" --data-urlencode "csrf=$(admin_csrf setup)" \
+        -d username=e2e --data-urlencode "password=end to end test" --data-urlencode "password2=end to end test" "$C/admin/setup")"
+    [ "$code" = 303 ] || fail "setup: $code"
+    [ "$(curl -s -o /dev/null -w '%{http_code}' -b "$AJ" "$C/admin/")" = 200 ] || fail "not logged in after setup"
+    [ "$(curl -s -o /dev/null -w '%{http_code}' "$C/admin/events.csv")" = 303 ] || fail "admin answers without a login"
+}
 # admin PATH FIELD=VALUE... : prints the page answered
 admin() {
     local path="$1"; shift
@@ -129,8 +140,8 @@ pid_of() {
 import json, sys
 print([r["participant"] for r in json.load(sys.stdin)["rows"] if r["name"] == sys.argv[1]][0])' "$2"
 }
-flags() { curl -s "$C/admin/events.csv?kind=flag" | tail -n +2; }
-status_in_admin() { curl -s "$C/admin/games/$1" | has "<span class=\"badge st-$2\">$2</span>"; }
+flags() { curl -s -b "$AJ" "$C/admin/events.csv?kind=flag" | tail -n +2; }
+status_in_admin() { curl -s -b "$AJ" "$C/admin/games/$1" | has "<span class=\"badge st-$2\">$2</span>"; }
 copied() { flags | has two_boots; }
 
 # ---------------------------------------------------------------------------
@@ -144,6 +155,10 @@ for n in 1 2 3; do
 done
 [ "$(kali_nojar 1 -o /dev/null -w '%{http_code}' --max-time 3 http://vm2/ctf/ || true)" = 000 ] || fail "Kali 1 reaches VM 2"
 ok "each Kali reaches only its own VM"
+
+step "admin: setup and login"
+admin_setup
+ok "the first account made on the setup page; admin closed without it"
 
 step "games and joins (T1.1-53)"
 game "Game A"; A_ID=$GAME_ID; A_CODE=$GAME_CODE

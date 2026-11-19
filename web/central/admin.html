@@ -1,37 +1,46 @@
 {{define "anav"}}
-<header class="brand"><a class="home" href="{{path "/admin/"}}"><span class="logo" aria-hidden="true">◆</span> {{.Title}} · admin</a>
-  <nav aria-label="Admin"><a href="{{path "/admin/"}}">Games</a><a href="{{path "/admin/events"}}">Events</a><a href="{{path "/"}}">Public</a></nav>
+<header class="appbar">
+  <a class="home" href="{{path "/admin/"}}">{{template "mark"}}<span class="name">{{.Title}}</span><span class="tag">admin</span></a>
+  <nav aria-label="Admin">
+    <a class="tbtn{{if eq .Section "games"}} active{{end}}" href="{{path "/admin/"}}">Games</a>
+    <a class="tbtn{{if eq .Section "events"}} active{{end}}" href="{{path "/admin/events"}}">Events</a>
+    <a class="tbtn{{if eq .Section "users"}} active{{end}}" href="{{path "/admin/users"}}">Users</a>
+    <a class="tbtn" href="{{path "/"}}">Public boards</a>
+    {{if .Me}}<form class="inline" method="post" action="{{path "/admin/logout"}}"><input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button class="tbtn outline" type="submit" title="Logged in as {{.Me}}">{{.Me}} · Log out</button></form>{{end}}
+  </nav>
 </header>
 {{end}}
 
 {{define "scoring"}}
 <fieldset class="scoring"><legend>Points per difficulty</legend>
-  {{range .}}<label class="inline"><span class="stars">{{stars .Difficulty}}</span>
-    <input name="points{{.Difficulty}}" value="{{.Points}}" inputmode="numeric" size="5" aria-label="points for {{.Difficulty}} stars"></label>{{end}}
+  {{range .}}<label class="inline">{{template "diff" .Difficulty}}
+    <input name="points{{.Difficulty}}" value="{{.Points}}" inputmode="numeric" size="5" aria-label="points for difficulty {{.Difficulty}}"></label>{{end}}
 </fieldset>
 {{end}}
 
 {{define "admin"}}{{template "head" (print "Admin · " .Title)}}
 <body>
-<main>
 {{template "anav" .}}
+<main>
 <h1>Games</h1>
-{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+{{if .Error}}<p class="alert error" role="alert">{{.Error}}</p>{{end}}
 <section class="card">
   <div class="table-wrap">
-  <table>
-    <thead><tr><th>Game</th><th>State</th><th class="n">Participants</th><th class="n">Online</th><th class="hide-narrow">Window</th><th class="hide-narrow">Created</th></tr></thead>
+  <table class="list">
+    <thead><tr><th>Game</th><th>State</th><th class="n">Participants</th><th class="n">Online</th><th class="hide-narrow">Window</th><th class="hide-narrow">Created</th><th></th></tr></thead>
     <tbody>
     {{range .Games}}
     <tr>
-      <td><a href="{{path "/admin/games/"}}{{.ID}}"><strong>{{.Name}}</strong></a>{{if .BoardHidden}} <span class="badge">board hidden</span>{{end}}</td>
+      <td><strong>{{.Name}}</strong>{{if .BoardHidden}} <span class="badge">board hidden</span>{{end}}</td>
       <td><span class="badge state-{{.EffectiveState $.Now}}">{{.EffectiveState $.Now}}</span></td>
       <td class="n">{{.Participants}}</td>
       <td class="n">{{.Online}}</td>
       <td class="hide-narrow muted">{{if .StartsAt}}{{datetime .StartsAt}}{{end}}{{if .EndsAt}} – {{datetime .EndsAt}}{{end}}</td>
       <td class="hide-narrow muted">{{datetime (ptr .CreatedAt)}}</td>
+      <td class="actions"><a class="button small" href="{{path "/admin/games/"}}{{.ID}}">Manage</a></td>
     </tr>
-    {{else}}<tr><td colspan="6" class="empty">No games yet. Make one below.</td></tr>{{end}}
+    {{else}}<tr><td colspan="7" class="empty">No games yet. Make one below.</td></tr>{{end}}
     </tbody>
   </table>
   </div>
@@ -51,7 +60,7 @@
     {{template "scoring" .Scoring}}
     <label class="check"><input type="checkbox" name="hidden"> Hide the board (only admin sees the standings)</label>
     <label class="check"><input type="checkbox" name="initials"> Show initials instead of names on the board</label>
-    <button type="submit">Create the game and show its join code</button>
+    <p class="buttons"><button type="submit">Create the game and show its join code</button></p>
   </form>
 </section>
 
@@ -62,7 +71,7 @@
     <label for="title">Site title</label><input id="title" name="title" value="{{.Settings.Title}}" maxlength="80" required>
     <label for="timezone">Time zone</label><input id="timezone" name="timezone" value="{{.Settings.Timezone}}" required>
     <label for="retention">Keep events for (days)</label><input id="retention" name="retention" value="{{.Settings.RetentionDays}}" inputmode="numeric" required>
-    <button type="submit">Save settings</button>
+    <p class="buttons"><button type="submit">Save settings</button></p>
   </form>
 </details>
 </main>

@@ -1,19 +1,30 @@
 {{define "index"}}{{template "head" .Title}}
 <body>
-<main>
 {{template "nav" .}}
+<main>
 <h1>Games</h1>
 {{if .Live}}
 <ul class="games">
-  {{range .Live}}<li class="card"><a href="{{path "/g/"}}{{.Slug}}/"><strong>{{.Name}}</strong></a>
-    <span class="badge{{if eq .State "running"}} live{{end}}">{{.State}}</span>
-    <span class="muted">{{.Participants}} participants, {{.Online}} online</span></li>{{end}}
+  {{range .Live}}<li class="card game">
+    <div class="game-info">
+      <h2>{{.Name}}</h2>
+      <p><span class="badge{{if eq .State "running"}} live{{end}}">{{if eq .State "running"}}Live{{else}}Open for joining{{end}}</span>
+        <span class="muted">{{.Participants}} participants · {{.Online}} online</span></p>
+    </div>
+    <div class="buttons">
+      <a class="button" href="{{path "/g/"}}{{.Slug}}/">Leaderboard</a>
+      <a class="button secondary" href="{{path "/g/"}}{{.Slug}}/beamer">Beamer</a>
+    </div>
+  </li>{{end}}
 </ul>
-{{else}}<p class="muted">No game is running at the moment.</p>{{end}}
+{{else}}<section class="card"><p class="muted empty">No game is running at the moment.</p></section>{{end}}
 {{if .Done}}
-<h2>Earlier games</h2>
+<h2 class="section">Earlier games</h2>
 <ul class="games">
-  {{range .Done}}<li><a href="{{path "/g/"}}{{.Slug}}/">{{.Name}}</a> <span class="muted">{{.Participants}} participants</span></li>{{end}}
+  {{range .Done}}<li class="card game compact">
+    <div class="game-info"><strong>{{.Name}}</strong> <span class="muted">{{.Participants}} participants</span></div>
+    <div class="buttons"><a class="button small secondary" href="{{path "/g/"}}{{.Slug}}/">Final result</a></div>
+  </li>{{end}}
 </ul>
 {{end}}
 </main>

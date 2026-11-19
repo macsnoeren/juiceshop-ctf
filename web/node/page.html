@@ -3,16 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#4f6f7a">
 <title>Juice Shop CTF</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M8 12l4-7h8l4 7v16a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2z' fill='%2370e000'/%3E%3Cpath d='M13 15v10M13 15h7l-2 3 2 3h-7' fill='%23121316' stroke='%23121316' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/ctf/static/style.css">
 </head>
 <body>
+{{/* The bar and the mark are the central server's (web/central/layout.html),
+     so the student's page, the shop and the leaderboard look like one thing. */}}
+<header class="appbar">
+  <a class="home" href="/ctf/"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M21 1.5l-2.6 7" stroke="#e8ecef" stroke-width="1.8" stroke-linecap="round"/><path d="M8 12l4-7h8l4 7v16a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2z" fill="#70e000"/><path d="M8 12h16" stroke="#50a400" stroke-width="1.5"/><path d="M13 15v10M13 15h7l-2 3 2 3h-7" fill="#121316" stroke="#121316" stroke-width="1.6" stroke-linejoin="round"/></svg><span class="name">Juice Shop CTF</span><span class="tag">this VM</span></a>
+  {{if not .NeedsEntry}}<nav aria-label="Pages">
+    <a class="tbtn" href="/juiceshop/">Juice Shop</a>
+    {{with .Membership}}{{if .BoardURL}}<a class="tbtn" href="{{.BoardURL}}">Leaderboard</a>{{end}}{{end}}
+  </nav>{{end}}
+</header>
 <main class="narrow">
-<header class="brand"><span class="logo" aria-hidden="true">◆</span> Juice Shop CTF <span class="muted">· this VM</span></header>
 
 {{with .Flash}}
-  {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+  {{if .Error}}<p class="alert error" role="alert">{{.Error}}</p>{{end}}
   {{if .Message}}<p class="alert ok" role="status">{{.Message}}</p>{{end}}
   {{if .ReturnCode}}
   <section class="card codecard">
@@ -31,14 +40,14 @@
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     <label for="ename">Your name</label><input id="ename" name="name" required autocomplete="name">
     <label for="ecode">Return code</label><input id="ecode" name="code" required autocomplete="off">
-    <button type="submit">Continue</button>
+    <p class="buttons"><button type="submit">Continue</button></p>
   </form>
 </section>
 {{else}}
 
 <section class="card">
   <h1>Your Juice Shop</h1>
-  <p class="buttons"><a class="button" href="/juiceshop/">Open the Juice Shop</a>
+  <p class="buttons"><a class="button accent" href="/juiceshop/">Open the Juice Shop</a>
     {{with .Membership}}{{if .BoardURL}}<a class="button secondary" href="{{.BoardURL}}">Leaderboard</a>{{end}}{{end}}</p>
   <p class="hint">From Kali: <span class="address">http://{{.Host}}/juiceshop/</span> — in the browser, Burp, curl or sqlmap. No cookie is needed.
     {{if not .Reachable}}<strong>The Juice Shop is not answering at the moment; it may be starting.</strong>{{end}}</p>
@@ -49,7 +58,7 @@
 <section class="card">
   {{if $m}}
     <h2>Join again</h2>
-    <p class="alert" role="alert">{{$m.Problem}}</p>
+    <p class="alert error" role="alert">{{$m.Problem}}</p>
   {{else}}
     <h2>Join the CTF</h2>
     <p>Type your name and {{if .JoinCode}}the join code your teacher shows{{else}}start: this VM has no central server, so your score stays on this VM{{end}}.
@@ -64,7 +73,7 @@
     <label for="code">Join code</label>
     <input id="code" name="code" required autocomplete="off" placeholder="abcde-fghjk" maxlength="20">
     {{end}}
-    <button type="submit">Join</button>
+    <p class="buttons"><button type="submit">Join</button></p>
   </form>
 </section>
 {{end}}
@@ -100,7 +109,7 @@
 {{if .Recent}}
 <section class="card">
   <h2>Recently solved</h2>
-  <ul class="timeline">{{range .Recent}}<li><time>{{hm .SolvedAt}}</time> {{.Name}} <span class="stars">{{stars .Difficulty}}</span></li>{{end}}</ul>
+  <ul class="timeline">{{range .Recent}}<li><time>{{hm .SolvedAt}}</time> {{.Name}} <span class="diff" title="difficulty {{.Difficulty}} of 6" aria-label="difficulty {{.Difficulty}}">{{.Difficulty}}</span></li>{{end}}</ul>
 </section>
 {{end}}
 {{end}}
@@ -110,16 +119,16 @@
   <form method="post" action="/ctf/restart">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     <p><strong>Restart Juice Shop</strong> restarts the shop and puts your progress back in it. For a shop you have broken — there is even a challenge for that.</p>
-    <button type="submit" class="secondary"{{if not .CanRestart}} disabled{{end}}>Restart Juice Shop</button>
+    <p class="buttons"><button type="submit" class="secondary"{{if not .CanRestart}} disabled{{end}}>Restart Juice Shop</button></p>
   </form>
-  <form method="post" action="/ctf/forget">
+  <form class="sep" method="post" action="/ctf/forget">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     <p><strong>Forget</strong> deletes everything this VM knows about you — your name, your membership of the game, your solves here,
        your progress in the shop — and restarts Juice Shop empty. What already reached the leaderboard stays there, and you are taken off it.
        Joining again makes you a new participant.</p>
     <label for="confirm">Type <code>forget</code> to confirm</label>
     <input id="confirm" name="confirm" autocomplete="off" required pattern="[Ff][Oo][Rr][Gg][Ee][Tt]">
-    <button type="submit" class="danger">Forget</button>
+    <p class="buttons"><button type="submit" class="danger">Forget</button></p>
   </form>
 </section>
 
@@ -133,9 +142,11 @@
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <label for="url">Another central server</label>
       <input id="url" name="url" placeholder="https://neo.jmnl.nl/juiceshop-ctf" maxlength="200">
+      <p class="buttons">
       <button type="submit" class="small" name="action" value="set">Use this server</button>
       {{if .CentralOverride}}<button type="submit" class="small secondary" name="action" value="default">Back to the default{{if .CentralDefault}} ({{.CentralDefault}}){{end}}</button>{{end}}
       <button type="submit" class="small secondary" name="action" value="none">No central server</button>
+      </p>
     </form>
   {{end}}
 </details>

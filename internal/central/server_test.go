@@ -38,7 +38,44 @@ type env struct {
 	jar map[string]string // admin cookies
 }
 
+// newEnv is a server with one admin account, "teacher", logged in: what
+// every admin test starts from. newBareEnv has no account yet.
 func newEnv(t *testing.T) *env {
+	t.Helper()
+	e := newBareEnv(t)
+	e.setup(adminUser, adminPassword)
+	return e
+}
+
+const (
+	adminUser     = "teacher"
+	adminPassword = "correct horse battery"
+)
+
+// setup makes the first account on the setup page, which logs this
+// client in.
+func (e *env) setup(user, pw string) *httptest.ResponseRecorder {
+	e.t.Helper()
+	m := csrfRE.FindStringSubmatch(e.get(base + "/admin/setup").Body.String())
+	if m == nil {
+		e.t.Fatal("no CSRF token on the setup page")
+	}
+	form := url.Values{"csrf": {m[1]}, "username": {user}, "password": {pw}, "password2": {pw}}
+	w := e.req("POST", base+"/admin/setup", strings.NewReader(form.Encode()), "Content-Type", "application/x-www-form-urlencoded")
+	if w.Code != http.StatusSeeOther {
+		e.t.Fatalf("setup: %d %s", w.Code, w.Body.String())
+	}
+	return w
+}
+
+// client is another browser on the same server: its own cookies.
+func (e *env) client() *env {
+	c := *e
+	c.jar = map[string]string{}
+	return &c
+}
+
+func newBareEnv(t *testing.T) *env {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "central.db"))
 	if err != nil {
@@ -461,8 +498,10 @@ func TestChartGolden(t *testing.T) {
 	if n := strings.Count(w.Body.String(), "<polyline"); n != 3 {
 		t.Errorf("%d lines, want 3", n)
 	}
-	if !strings.Contains(w.Body.String(), "prefers-color-scheme: dark") {
-		t.Error("the chart has no dark colours")
+	// The chart sits on a dark card (Juice Shop's theme, style.css): its
+	// text must be light.
+	if !strings.Contains(w.Body.String(), ".t{fill:#b8c0c7}") {
+		t.Error("the chart is not drawn for the dark theme")
 	}
 }
 

@@ -1,0 +1,62 @@
+{{/* The login and the setup page: one card in the middle of the page, as
+     Juice Shop's own login. Neither has the admin bar: there is nothing to
+     go to yet. */}}
+
+{{define "authbar"}}
+<header class="appbar">
+  <a class="home" href="{{path "/"}}">{{template "mark"}}<span class="name">{{.Title}}</span><span class="tag">admin</span></a>
+  <nav aria-label="Pages"><a class="tbtn" href="{{path "/"}}">Public boards</a></nav>
+</header>
+{{end}}
+
+{{define "login"}}{{template "head" (print "Log in · " .Title)}}
+<body>
+{{template "authbar" .}}
+<main class="auth">
+<section class="card">
+  <h1>Log in</h1>
+  {{if .Error}}<p class="alert error" role="alert">{{.Error}}</p>{{end}}
+  {{if .Message}}<p class="alert ok" role="status">{{.Message}}</p>{{end}}
+  <form method="post" action="{{path "/admin/login"}}">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <input type="hidden" name="next" value="{{.Next}}">
+    <label for="username">Username</label>
+    <input id="username" name="username" value="{{.Username}}" required autocomplete="username" autocapitalize="none" spellcheck="false" autofocus>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" required autocomplete="current-password">
+    <label class="check"><input type="checkbox" name="remember"{{if .Remember}} checked{{end}}> Keep me logged in on this device for 30 days</label>
+    <p class="buttons center"><button type="submit" class="wide">Log in</button></p>
+  </form>
+  <p class="hint center">No account? Ask another admin to add you under <em>Users</em>.</p>
+</section>
+</main>
+</body>
+</html>
+{{end}}
+
+{{define "setup"}}{{template "head" (print "Set up · " .Title)}}
+<body>
+{{template "authbar" .}}
+<main class="auth">
+<section class="card">
+  <h1>Set up</h1>
+  <p>This central server has no admin account yet. Make the first one: it can add the others under <em>Users</em>.</p>
+  {{if .Error}}<p class="alert error" role="alert">{{.Error}}</p>{{end}}
+  <form method="post" action="{{path "/admin/setup"}}">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label for="username">Username</label>
+    <input id="username" name="username" value="{{.Username}}" required minlength="2" maxlength="40" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus>
+    <p class="hint">Letters, digits and <code>. _ - @</code>.</p>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" required minlength="10" autocomplete="new-password">
+    <p class="hint">At least 10 characters. A sentence is easier to remember than a code.</p>
+    <label for="password2">The same password again</label>
+    <input id="password2" name="password2" type="password" required minlength="10" autocomplete="new-password">
+    <p class="buttons center"><button type="submit" class="wide">Create the account and log in</button></p>
+  </form>
+  <p class="hint">Until this form is sent, whoever opens this page first becomes the admin. You stay logged in on this device for 30 days.</p>
+</section>
+</main>
+</body>
+</html>
+{{end}}
