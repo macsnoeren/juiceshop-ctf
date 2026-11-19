@@ -249,6 +249,9 @@ func TestOfflineJoinArrivesLater(t *testing.T) {
 	h.shop.solve("scoreBoardChallenge")
 	h.poll()
 	solvedAt := h.n.st.Solved["scoreBoardChallenge"]
+	// Past the first retry time (BackoffBase is 1 ms in the harness): the
+	// poll above can take less than that without the race detector.
+	time.Sleep(5 * time.Millisecond)
 	h.n.TryOutbox(context.Background())
 	if h.n.st.Outbox == nil || h.n.st.Outbox.Attempts != 1 {
 		t.Fatal("a failed retry did not stay in the outbox")
@@ -289,6 +292,7 @@ func TestOfflineJoinArrivesLater(t *testing.T) {
 	h2.shop.solve("loginAdminChallenge")
 	h2.poll()
 	c.down.Store(false)
+	time.Sleep(5 * time.Millisecond) // past the retry time, as above
 	h2.n.TryOutbox(context.Background())
 	if h2.n.st.Membership.Status != StatusRefused || len(h2.n.st.Solved) != 1 {
 		t.Fatalf("refused queued join: %s, %d solves", h2.n.st.Membership.Status, len(h2.n.st.Solved))
