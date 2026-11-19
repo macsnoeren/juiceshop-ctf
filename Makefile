@@ -23,8 +23,8 @@ e2e:
 	bash tests/e2e.sh
 
 images:
-	for i in agent status central; do \
-	  docker build -q -f deploy/docker/Dockerfile.$$i --build-arg VERSION=$(VERSION) -t juiceshop-ctf-$$i:latest . || exit 1; done
+	docker build -f deploy/docker/Dockerfile.node    --build-arg VERSION=$(VERSION) -t juiceshop-ctf:$(VERSION) -t juiceshop-ctf:latest .
+	docker build -f deploy/docker/Dockerfile.central --build-arg VERSION=$(VERSION) -t juiceshop-ctf-central:$(VERSION) -t juiceshop-ctf-central:latest .
 
 run:
 	deploy/compose/start.sh

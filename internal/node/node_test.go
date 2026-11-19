@@ -1,0 +1,557 @@
+package node
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+)
+
+// ---- T1.1-28, -29: node.db ----------------------------------------------------
+
+func TestNodeDBModesAndMigrations(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "ctf")
+	path := filepath.Join(dir, "node.db")
+	db, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := newState()
+	st.Membership = &Membership{Status: StatusLocal, Name: "Zoë", NodeUID: protocol.NewNodeUID(), JoinedAt: time.Now()}
+	st.Solved["scoreBoardChallenge"] = time.Now()
+	if err := db.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	v1, _ := db.SchemaVersion()
+	db.Close()
+	db, err = OpenStore(path) // twice: a no-op
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	v2, _ := db.SchemaVersion()
+	got, _ := db.Load()
+	if v1 != 1 || v2 != 1 || got.Membership == nil || len(got.Solved) != 1 {
+		t.Errorf("schema %d→%d, state %+v", v1, v2, got)
+	}
+	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o700 {
+		t.Errorf("directory mode %v, want 0700", fi.Mode().Perm())
+	}
+	for _, f := range []string{"node.db", "node.db-wal", "node.db-shm"} {
+		fi, err := os.Stat(filepath.Join(dir, f))
+		if err != nil {
+			if f == "node.db" {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s mode %v, want 0600", f, fi.Mode().Perm())
+		}
+	}
+}
+
+func TestImportV1(t *testing.T) {
+	h := newHarness(t, Config{})
+	v1 := `{"version":1,"registration":{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"Sanne","registered_at":"2026-11-18T10:00:00Z"},
+		"solved":{"scoreBoardChallenge":"2026-11-18T10:05:00Z","loginAdminChallenge":"2026-11-18T10:07:00Z"},
+		"cheat":{"loginAdminChallenge":0.2},"continue_codes":{"challenges":"code:loginAdminChallenge+scoreBoardChallenge"},"commands_applied":[]}`
+	path := filepath.Join(h.dir, "state.json")
+	os.WriteFile(path, []byte(v1), 0o600)
+	n, err := h.n.ImportV1(path)
+	if err != nil || n != 2 {
+		t.Fatalf("import: %d %v", n, err)
+	}
+	st, _ := h.db.Load()
+	if len(st.Solved) != 2 || st.Membership != nil || st.ContinueCodes.Empty() {
+		t.Errorf("after import: %d solves, membership %v, codes %v", len(st.Solved), st.Membership, st.ContinueCodes)
+	}
+	if _, err := os.Stat(path + ".imported"); err != nil {
+		t.Error("state.json was not renamed")
+	}
+	if n, _ := h.n.ImportV1(path); n != -1 {
+		t.Error("imported twice")
+	}
+}
+
+// ---- T1.1-33: 1.0's watcher tests, on node.db --------------------------------
+
+func TestRestoreAfterJuiceShopRestart(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.poll()
+	h.join("Sanne de Vries", "")
+	h.shop.solve("scoreBoardChallenge", "loginAdminChallenge")
+	h.poll()
+	if h.n.st.ContinueCodes.Empty() {
+		t.Fatal("continue codes were not fetched after a new solve")
+	}
+	h.shop.restart()
+	h.poll()
+	if h.shop.applied != 1 || h.shop.nSolved() != 2 {
+		t.Fatalf("applied %d, %d solved in the shop", h.shop.applied, h.shop.nSolved())
+	}
+	if h.n.st.RestoreFailed || !strings.Contains(h.logs.String(), "progress restored") {
+		t.Error("a successful restore must be logged and not flagged")
+	}
+	h.poll()
+	if h.shop.applied != 1 {
+		t.Error("codes applied again although nothing was missing")
+	}
+	// and it all survives a restart of ctf-node itself
+	h.open(Config{})
+	if len(h.n.st.Solved) != 2 || h.n.st.ContinueCodes.Empty() || h.n.st.Membership == nil {
+		t.Error("node.db lost the state across a restart of ctf-node")
+	}
+}
+
+func TestRestoreFailureIsFlaggedAndNotRetriedInTheSameBoot(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.poll()
+	h.join("Sanne de Vries", "")
+	h.shop.solve("scoreBoardChallenge")
+	h.poll()
+	h.shop.restart()
+	h.shop.applyFails = true
+	h.poll()
+	h.poll()
+	h.poll()
+	if h.shop.applied != 1 || !h.n.st.RestoreFailed || len(h.n.st.Solved) != 1 {
+		t.Errorf("applied %d, restore_failed %v, %d solves", h.shop.applied, h.n.st.RestoreFailed, len(h.n.st.Solved))
+	}
+	h.shop.restart()
+	h.poll()
+	if h.shop.applied != 2 {
+		t.Errorf("a new boot must get a new attempt: applied %d", h.shop.applied)
+	}
+}
+
+func TestNoRestoreAndNoSolvesWithoutJoining(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.poll()
+	h.shop.solve("scoreBoardChallenge")
+	h.poll()
+	h.shop.restart()
+	h.poll()
+	if h.shop.applied != 0 || len(h.n.st.Solved) != 0 {
+		t.Error("recorded or restored without a student")
+	}
+}
+
+func TestBaselineAtJoin(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.shop.solve("scoreBoardChallenge") // from before the join
+	h.poll()
+	h.join("Sanne de Vries", "")
+	h.shop.solve("loginAdminChallenge")
+	h.poll()
+	if _, ok := h.n.st.Solved["scoreBoardChallenge"]; ok {
+		t.Error("a challenge solved before the join counts")
+	}
+	if _, ok := h.n.st.Solved["loginAdminChallenge"]; !ok {
+		t.Error("a challenge solved after the join does not count")
+	}
+	h.shop.restart()
+	h.poll()
+	h.shop.solve("scoreBoardChallenge")
+	h.poll()
+	if _, ok := h.n.st.Solved["scoreBoardChallenge"]; !ok {
+		t.Error("in a new boot the challenge must count")
+	}
+}
+
+func TestWebhook(t *testing.T) {
+	h := newHarness(t, Config{PollInterval: time.Hour, PollDebounce: 300 * time.Millisecond})
+	srv := httptest.NewServer(h.n.WebhookHandler())
+	defer srv.Close()
+	if resp, _ := http.Get(srv.URL + "/webhook"); resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("GET: %d", resp.StatusCode)
+	}
+	if resp, _ := http.Post(srv.URL+"/webhook", "application/json", strings.NewReader(strings.Repeat("x", maxWebhookBody+1))); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("large body: %d", resp.StatusCode)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); h.n.RunPoller(ctx) }()
+	h.join("Sanne de Vries", "")
+	start := h.n.polls.Load()
+	for range 20 {
+		http.Post(srv.URL+"/webhook", "application/json", strings.NewReader(`{"solution":{"challenge":"loginAdminChallenge","cheatScore":0.1}}`))
+		time.Sleep(25 * time.Millisecond)
+	}
+	time.Sleep(800 * time.Millisecond)
+	cancel()
+	wg.Wait()
+	if n := h.n.polls.Load() - start; n < 1 || n > 3 {
+		t.Errorf("20 webhooks caused %d polls, want 1-3", n)
+	}
+	if len(h.n.st.Solved) != 0 {
+		t.Error("a webhook body changed the solved set")
+	}
+	if h.n.st.Cheat["loginAdminChallenge"] != 0.1 {
+		t.Error("the cheat score of the webhook was not kept")
+	}
+}
+
+// ---- T1.1-34..37a: joining and reporting --------------------------------------
+
+func TestJoinKeepsTheTokenNotTheCode(t *testing.T) {
+	c := newCentral(t)
+	g, code := c.game(t, "Lab")
+	h := newHarness(t, Config{DefaultCentralURL: c.URL})
+	h.poll()
+	if r := h.join("Zoë de Vries", strings.ToUpper(protocol.FormatCode(code))); r.Outcome != JoinedOnline {
+		t.Fatalf("outcome %v", r.Outcome)
+	}
+	tok := h.n.st.Membership.Token
+	h.db.Checkpoint()
+	var all []byte
+	for _, f := range []string{"node.db", "node.db-wal"} {
+		b, _ := os.ReadFile(filepath.Join(h.dir, f))
+		all = append(all, b...)
+	}
+	if !bytes.Contains(all, []byte(tok)) {
+		t.Error("the token is not in node.db")
+	}
+	if bytes.Contains(all, []byte(code)) || bytes.Contains(all, []byte(strings.ToUpper(code))) {
+		t.Error("the join code is in node.db")
+	}
+	if ps := c.participants(t, g); len(ps) != 1 || ps[0].NodeUID != h.n.st.Membership.NodeUID {
+		t.Errorf("central has %+v", ps)
+	}
+
+	h2 := newHarness(t, Config{DefaultCentralURL: c.URL})
+	w := h2.submit("/ctf/join", url.Values{"name": {"Bram"}, "code": {"23456789ab"}})
+	if w.Code != 403 || !strings.Contains(w.Body.String(), "Unknown join code") || h2.n.st.Membership != nil {
+		t.Errorf("a wrong code: %d, membership %v", w.Code, h2.n.st.Membership)
+	}
+}
+
+func TestOfflineJoinArrivesLater(t *testing.T) {
+	c := newCentral(t)
+	g, code := c.game(t, "Lab")
+	h := newHarness(t, Config{DefaultCentralURL: c.URL})
+	h.poll()
+	c.down.Store(true)
+	if r := h.join("Zoë", code); r.Outcome != JoinQueued || h.n.st.Membership.Status != StatusPending {
+		t.Fatalf("join with the central server down: %v", r.Outcome)
+	}
+	h.shop.solve("scoreBoardChallenge")
+	h.poll()
+	solvedAt := h.n.st.Solved["scoreBoardChallenge"]
+	h.n.TryOutbox(context.Background())
+	if h.n.st.Outbox == nil || h.n.st.Outbox.Attempts != 1 {
+		t.Fatal("a failed retry did not stay in the outbox")
+	}
+	if !strings.Contains(h.req("GET", "/ctf/", nil).Body.String(), "Waiting for the central server") {
+		t.Error("the page does not say the join is waiting")
+	}
+	c.down.Store(false)
+	time.Sleep(10 * time.Millisecond)
+	h.n.TryOutbox(context.Background())
+	if h.n.st.Membership.Status != StatusJoined || h.n.st.Outbox != nil {
+		t.Fatalf("after the server returned: %s", h.n.st.Membership.Status)
+	}
+	if err := h.report(); err != nil {
+		t.Fatal(err)
+	}
+	var at string
+	c.st.Ping()
+	ps := c.participants(t, g)
+	if len(ps) != 1 || ps[0].Solved != 1 {
+		t.Fatalf("central has %+v", ps)
+	}
+	_ = at
+	evs, _ := c.st.Events(storeFilter("solve"))
+	if len(evs) != 1 {
+		t.Errorf("solve events %d", len(evs))
+	}
+	b, _ := json.Marshal(h.n.st.Solved)
+	if !strings.Contains(string(b), solvedAt.UTC().Format("2006-01-02T15:04:05")) {
+		t.Error("the solve lost its original time")
+	}
+
+	// a queued join with a wrong code: refused later, the solves stay
+	h2 := newHarness(t, Config{DefaultCentralURL: c.URL})
+	h2.poll()
+	c.down.Store(true)
+	h2.join("Bram", "23456789ab")
+	h2.shop.solve("loginAdminChallenge")
+	h2.poll()
+	c.down.Store(false)
+	h2.n.TryOutbox(context.Background())
+	if h2.n.st.Membership.Status != StatusRefused || len(h2.n.st.Solved) != 1 {
+		t.Fatalf("refused queued join: %s, %d solves", h2.n.st.Membership.Status, len(h2.n.st.Solved))
+	}
+	page := h2.req("GET", "/ctf/", nil).Body.String()
+	if !strings.Contains(page, "Unknown join code") || !strings.Contains(page, `name="code"`) {
+		t.Error("the page does not ask for the code again")
+	}
+	h2.join("Bram", code)
+	if h2.n.st.Membership.Status != StatusJoined || len(h2.n.st.Solved) != 1 {
+		t.Error("joining again after a refusal lost the solves")
+	}
+}
+
+func TestReporterV2(t *testing.T) {
+	c := newCentral(t)
+	g, code := c.game(t, "Lab")
+	h := newHarness(t, Config{DefaultCentralURL: c.URL})
+	h.poll()
+	h.join("Zoë", code)
+	h.shop.solve("scoreBoardChallenge", "xxeFileDisclosureChallenge")
+	h.poll()
+	rep, _, _, ok := h.n.BuildReport()
+	if !ok || len(rep.Solves) != 1 || rep.Validate() != nil {
+		t.Fatalf("report %+v", rep)
+	}
+	if err := h.report(); err != nil {
+		t.Fatal(err)
+	}
+	if s := h.n.st.Standing; s == nil || s.Rank != 1 || s.Score != 100 {
+		t.Errorf("standing %+v", s)
+	}
+
+	// The operator removes the participant: the VM forgets, exactly as the button.
+	ps := c.participants(t, g)
+	if err := c.st.Remove(ps[0].ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.report(); err != nil {
+		t.Fatal(err)
+	}
+	assertForgotten(t, h)
+	if k := h.keeper.restarts.Load(); k != 1 {
+		t.Errorf("Juice Shop restarted %d times", k)
+	}
+	evs, _ := c.st.Events(storeFilter("command"))
+	if len(evs) != 3 || !strings.HasPrefix(evs[0].Text, "forget confirmed") {
+		t.Errorf("the forget was not confirmed once: %+v", evs)
+	}
+
+	// 401: the central server no longer knows the token
+	h.join("Zoë", code)
+	h.shop.solve("scoreBoardChallenge")
+	h.poll()
+	c.st.ClearGame(g.ID, time.Now())
+	c.st.Leave(protocol.Hash(h.n.st.Membership.Token), protocol.LeaveCommand, time.Now(), "") // confirm the forget, so only 401 is left
+	if err := h.report(); err == nil {
+		t.Fatal("no error for a token the server does not know")
+	}
+	if h.n.st.Membership.Status != StatusRejected || len(h.n.st.Solved) != 1 {
+		t.Errorf("after 401: %s", h.n.st.Membership.Status)
+	}
+	if err := h.report(); err != errNotJoined {
+		t.Errorf("reporting goes on after a 401: %v", err)
+	}
+	if !strings.Contains(h.req("GET", "/ctf/", nil).Body.String(), "Join again") {
+		t.Error("the page does not show the join form after a 401")
+	}
+}
+
+func assertForgotten(t *testing.T, h *harness) {
+	t.Helper()
+	counts, err := h.db.RowCounts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for table, n := range counts {
+		if n != 0 {
+			t.Errorf("table %s has %d rows after Forget", table, n)
+		}
+	}
+	if h.n.st.Membership != nil || len(h.n.st.Solved) != 0 {
+		t.Error("the state in memory was not wiped")
+	}
+	if h.shop.nSolved() != 0 {
+		t.Error("the shop still has solves after Forget")
+	}
+}
+
+func TestCentralLessSession(t *testing.T) {
+	ft := &failingTransport{}
+	h := newHarness(t, Config{})
+	h.n.SetTransport(ft)
+	h.poll()
+	if w := h.submit("/ctf/join", url.Values{"name": {"Zoë"}}); w.Code != 200 || h.n.st.Membership.Status != StatusLocal {
+		t.Fatalf("local join: %d", w.Code)
+	}
+	h.shop.solve("scoreBoardChallenge", "loginAdminChallenge")
+	h.poll()
+	page := h.req("GET", "/ctf/", nil).Body.String()
+	if !strings.Contains(page, `<span class="num">350</span>`) {
+		t.Error("the page does not show the local score by the scoring table")
+	}
+	h.submit("/ctf/restart", url.Values{})
+	h.poll()
+	h.poll()
+	h.submit("/ctf/forget", url.Values{"confirm": {"forget"}})
+	if err := h.report(); err != errNotJoined {
+		t.Errorf("report: %v", err)
+	}
+	h.n.TryOutbox(context.Background())
+	if n := ft.calls.Load(); n != 0 {
+		t.Errorf("%d outbound requests in a central-less session", n)
+	}
+}
+
+func TestAnotherCentralServer(t *testing.T) {
+	c := newCentral(t)
+	_, code := c.game(t, "Elsewhere")
+	h := newHarness(t, Config{DefaultCentralURL: "https://neo.invalid/juiceshop-ctf"})
+	h.poll()
+	if w := h.submit("/ctf/central", url.Values{"url": {"ftp://x"}, "action": {"set"}}); w.Code != 400 {
+		t.Errorf("a bad address: %d", w.Code)
+	}
+	if w := h.submit("/ctf/central", url.Values{"url": {c.URL}, "action": {"set"}}); w.Code != 200 {
+		t.Fatalf("set: %d", w.Code)
+	}
+	if r := h.join("Zoë", code); r.Outcome != JoinedOnline || h.n.st.Membership.CentralURL != c.URL {
+		t.Fatalf("join on the other server: %v", r.Outcome)
+	}
+	if w := h.submit("/ctf/central", url.Values{"action": {"default"}}); w.Code != 409 {
+		t.Errorf("changing the server while joined: %d", w.Code)
+	}
+	h.submit("/ctf/forget", url.Values{"confirm": {"forget"}})
+	if w := h.submit("/ctf/central", url.Values{"action": {"default"}}); w.Code != 200 || h.n.CentralURL() != "https://neo.invalid/juiceshop-ctf" {
+		t.Errorf("back to the default after Forget: %d %s", w.Code, h.n.CentralURL())
+	}
+	h.submit("/ctf/central", url.Values{"action": {"none"}})
+	if h.n.CentralURL() != "" || strings.Contains(h.req("GET", "/ctf/", nil).Body.String(), `name="code"`) {
+		t.Error("no central server: the join form still asks for a code")
+	}
+}
+
+// ---- T1.1-40..43: the page ----------------------------------------------------
+
+func TestPageWithoutCookiesIsTheSame(t *testing.T) {
+	c := newCentral(t)
+	_, code := c.game(t, "Lab")
+	h := newHarness(t, Config{DefaultCentralURL: c.URL})
+	h.poll()
+	h.join("Zoë", code)
+	strip := func(s string) string { return csrfRE.ReplaceAllString(s, "") }
+	with := strip(h.req("GET", "/ctf/", nil).Body.String())
+	h.jar = map[string]string{}
+	without := strip(h.req("GET", "/ctf/", nil).Body.String())
+	if with != without || !strings.Contains(with, "Zoë") {
+		t.Error("the page differs without cookies")
+	}
+	h.jar = map[string]string{}
+	if w := h.req("GET", "/juiceshop/rest/products", nil); w.Code != 200 || w.Body.String() != "juice shop: /juiceshop/rest/products" {
+		t.Errorf("the shop without cookies: %d %q", w.Code, w.Body.String())
+	}
+	if w := h.req("POST", "/ctf/forget", url.Values{"confirm": {"forget"}}); w.Code != 403 || h.n.st.Membership == nil {
+		t.Error("Forget without a CSRF token was accepted")
+	}
+}
+
+func TestRestartButtonRestores(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.poll()
+	h.join("Zoë", "")
+	h.shop.solve("scoreBoardChallenge", "loginAdminChallenge")
+	h.poll()
+	if w := h.submit("/ctf/restart", url.Values{}); w.Code != 200 {
+		t.Fatal(w.Code)
+	}
+	if h.keeper.restarts.Load() != 1 {
+		t.Fatal("the keeper was not asked")
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for h.shop.nSolved() != 2 && time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if h.shop.nSolved() != 2 {
+		t.Error("the solves are not back in the shop after the restart")
+	}
+}
+
+func TestForget(t *testing.T) {
+	c := newCentral(t)
+	g, code := c.game(t, "Lab")
+	h := newHarness(t, Config{DefaultCentralURL: c.URL})
+	h.poll()
+	h.join("Zoë", code)
+	h.shop.solve("scoreBoardChallenge")
+	h.poll()
+	h.report()
+	if w := h.submit("/ctf/forget", url.Values{"confirm": {"nope"}}); w.Code != 400 || h.n.st.Membership == nil {
+		t.Fatal("Forget without typing forget")
+	}
+	if w := h.submit("/ctf/forget", url.Values{"confirm": {"Forget"}}); w.Code != 200 {
+		t.Fatal(w.Code)
+	}
+	assertForgotten(t, h)
+	if ps := c.participants(t, g); len(ps) != 1 || ps[0].Status() != "left" || ps[0].Solved != 1 {
+		t.Errorf("central participant %+v", ps[0])
+	}
+
+	// with the central server down, Forget still empties the VM
+	h.join("Bram", code)
+	h.shop.solve("loginAdminChallenge")
+	h.poll()
+	c.down.Store(true)
+	h.submit("/ctf/forget", url.Values{"confirm": {"forget"}})
+	assertForgotten(t, h)
+}
+
+func TestGate(t *testing.T) {
+	h := newHarness(t, Config{Gate: true})
+	h.poll()
+	if w := h.req("GET", "/juiceshop/", nil); w.Code != 302 {
+		t.Errorf("the gated shop before joining: %d", w.Code)
+	}
+	w := h.submit("/ctf/join", url.Values{"name": {"Zoë de Vries"}})
+	m := regexpFind(`<p class="joincode">([a-z0-9]+)</p>`, w.Body.String())
+	if m == "" {
+		t.Fatal("no return code shown")
+	}
+	if w := h.req("GET", "/juiceshop/", nil); w.Code != 200 {
+		t.Errorf("the shop with the session: %d", w.Code)
+	}
+	h.jar = map[string]string{} // every cookie deleted
+	if w := h.req("GET", "/juiceshop/", nil); w.Code != 302 {
+		t.Error("the shop opened without a session")
+	}
+	if !strings.Contains(h.req("GET", "/ctf/", nil).Body.String(), "Welcome back") {
+		t.Error("no re-entry form")
+	}
+	for i := 1; i <= 6; i++ {
+		w := h.submit("/ctf/enter", url.Values{"name": {"Zoë de Vries"}, "code": {"aaaaaaaa"}})
+		want := 403
+		if i == 6 {
+			want = 429
+		}
+		if w.Code != want {
+			t.Errorf("wrong code %d: %d, want %d", i, w.Code, want)
+		}
+	}
+	h.db.db.Exec(`DELETE FROM gate_failures`)
+	if w := h.submit("/ctf/enter", url.Values{"name": {"zoë de vries"}, "code": {strings.ToUpper(m)}}); w.Code != 303 {
+		t.Fatalf("re-entry with name and return code: %d", w.Code)
+	}
+	if w := h.req("GET", "/juiceshop/", nil); w.Code != 200 {
+		t.Error("back in, but the shop is closed")
+	}
+
+	off := newHarness(t, Config{})
+	if w := off.submit("/ctf/enter", url.Values{"name": {"x"}, "code": {"y"}}); w.Code != 404 {
+		t.Errorf("/ctf/enter without the gate: %d", w.Code)
+	}
+	off.submit("/ctf/join", url.Values{"name": {"Zoë"}})
+	off.jar = map[string]string{}
+	if strings.Contains(off.req("GET", "/ctf/", nil).Body.String(), "return code") || off.req("GET", "/juiceshop/", nil).Code != 200 {
+		t.Error("something of the gate is active without CTF_GATE")
+	}
+}

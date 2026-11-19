@@ -1,0 +1,146 @@
+{{define "page"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Juice Shop CTF</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/ctf/static/style.css">
+</head>
+<body>
+<main class="narrow">
+<header class="brand"><span class="logo" aria-hidden="true">◆</span> Juice Shop CTF <span class="muted">· this VM</span></header>
+
+{{with .Flash}}
+  {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+  {{if .Message}}<p class="alert ok" role="status">{{.Message}}</p>{{end}}
+  {{if .ReturnCode}}
+  <section class="card codecard">
+    <h2>Your return code — write it down</h2>
+    <p class="joincode">{{.ReturnCode}}</p>
+    <p>If this browser loses its cookies, you get back in with your name and this code. It is shown only now.</p>
+  </section>
+  {{end}}
+{{end}}
+
+{{if .NeedsEntry}}
+<section class="card">
+  <h1>Welcome back</h1>
+  <p>This VM is in use by a student. Enter your name and your return code to continue.</p>
+  <form method="post" action="/ctf/enter">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label for="ename">Your name</label><input id="ename" name="name" required autocomplete="name">
+    <label for="ecode">Return code</label><input id="ecode" name="code" required autocomplete="off">
+    <button type="submit">Continue</button>
+  </form>
+</section>
+{{else}}
+
+<section class="card">
+  <h1>Your Juice Shop</h1>
+  <p class="buttons"><a class="button" href="/juiceshop/">Open the Juice Shop</a>
+    {{with .Membership}}{{if .BoardURL}}<a class="button secondary" href="{{.BoardURL}}">Leaderboard</a>{{end}}{{end}}</p>
+  <p class="hint">From Kali: <span class="address">http://{{.Host}}/juiceshop/</span> — in the browser, Burp, curl or sqlmap. No cookie is needed.
+    {{if not .Reachable}}<strong>The Juice Shop is not answering at the moment; it may be starting.</strong>{{end}}</p>
+</section>
+
+{{$m := .Membership}}
+{{if or (not $m) (eq $m.Status "refused") (eq $m.Status "rejected")}}
+<section class="card">
+  {{if $m}}
+    <h2>Join again</h2>
+    <p class="alert" role="alert">{{$m.Problem}}</p>
+  {{else}}
+    <h2>Join the CTF</h2>
+    <p>Type your name and {{if .JoinCode}}the join code your teacher shows{{else}}start: this VM has no central server, so your score stays on this VM{{end}}.
+       Every challenge you solve from now on counts{{if .JoinCode}} on the leaderboard under this name{{end}}.</p>
+  {{end}}
+  <form method="post" action="/ctf/join">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label for="name">Your name</label>
+    <input id="name" name="name" value="{{if .Flash.Name}}{{.Flash.Name}}{{else if $m}}{{$m.Name}}{{end}}" required minlength="2" maxlength="40" autocomplete="name">
+    <p class="hint">Shown on the leaderboard. Letters, digits, spaces and <code>. - ' _</code>.</p>
+    {{if .JoinCode}}
+    <label for="code">Join code</label>
+    <input id="code" name="code" required autocomplete="off" placeholder="abcde-fghjk" maxlength="20">
+    {{end}}
+    <button type="submit">Join</button>
+  </form>
+</section>
+{{end}}
+
+{{if $m}}
+<section class="card">
+  <p class="eyebrow">{{if $m.Game.Name}}{{$m.Game.Name}}{{else if eq $m.Status "local"}}On this VM only{{else}}Joining…{{end}}</p>
+  <h1>{{$m.Name}}</h1>
+  {{if eq $m.Status "pending"}}<p class="alert">Waiting for the central server{{if .QueueError}} ({{.QueueError}}){{end}}. Play on: your solves are kept and arrive with their times as soon as it answers.</p>{{end}}
+  {{if eq $m.Game.State "closed"}}<p class="alert">The game has ended. Solves made now no longer count.</p>{{end}}
+  <div class="stats">
+    {{if .Standing}}
+    <div><span class="num">{{.Standing.Score}}</span><span class="label">points</span></div>
+    <div><span class="num">#{{.Standing.Rank}}<small>/{{.Standing.Of}}</small></span><span class="label">rank</span></div>
+    {{else}}
+    <div><span class="num">{{.LocalScore}}</span><span class="label">points{{if ne $m.Status "local"}} (on this VM){{end}}</span></div>
+    {{end}}
+    <div><span class="num">{{.Solved}}<small>/{{.Total}}</small></span><span class="label">challenges</span></div>
+  </div>
+  {{if eq $m.Status "joined"}}<p class="hint">Central server last reached {{clock .LastReportAt}}.</p>{{end}}
+  {{if .RestoreFailed}}<p class="hint"><strong>Juice Shop restarted and not all progress could be put back in it. Your score is not affected.</strong></p>{{end}}
+</section>
+
+{{if .Categories}}
+<section class="card">
+  <h2>By category</h2>
+  <table class="cats">
+    {{range .Categories}}<tr><th scope="row">{{.Name}}</th><td><progress value="{{.Solved}}" max="{{.Total}}">{{.Solved}}/{{.Total}}</progress></td><td class="n">{{.Solved}}/{{.Total}}</td></tr>{{end}}
+  </table>
+</section>
+{{end}}
+
+{{if .Recent}}
+<section class="card">
+  <h2>Recently solved</h2>
+  <ul class="timeline">{{range .Recent}}<li><time>{{hm .SolvedAt}}</time> {{.Name}} <span class="stars">{{stars .Difficulty}}</span></li>{{end}}</ul>
+</section>
+{{end}}
+{{end}}
+
+<section class="card">
+  <h2>Your shop broke? Starting over?</h2>
+  <form method="post" action="/ctf/restart">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <p><strong>Restart Juice Shop</strong> restarts the shop and puts your progress back in it. For a shop you have broken — there is even a challenge for that.</p>
+    <button type="submit" class="secondary"{{if not .CanRestart}} disabled{{end}}>Restart Juice Shop</button>
+  </form>
+  <form method="post" action="/ctf/forget">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <p><strong>Forget</strong> deletes everything this VM knows about you — your name, your membership of the game, your solves here,
+       your progress in the shop — and restarts Juice Shop empty. What already reached the leaderboard stays there, and you are taken off it.
+       Joining again makes you a new participant.</p>
+    <label for="confirm">Type <code>forget</code> to confirm</label>
+    <input id="confirm" name="confirm" autocomplete="off" required pattern="[Ff][Oo][Rr][Gg][Ee][Tt]">
+    <button type="submit" class="danger">Forget</button>
+  </form>
+</section>
+
+<details class="card">
+  <summary>Central server</summary>
+  {{if $m}}
+    <p>This VM is in the game of <code>{{if $m.CentralURL}}{{$m.CentralURL}}{{else}}(none — on this VM only){{end}}</code>. To use another central server, press <strong>Forget</strong> first.</p>
+  {{else}}
+    <p>A join goes to <code>{{if .CentralURL}}{{.CentralURL}}{{else}}(none — on this VM only){{end}}</code>{{if .CentralOverride}}, set on this page{{else}}, this VM's default{{end}}.</p>
+    <form method="post" action="/ctf/central">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <label for="url">Another central server</label>
+      <input id="url" name="url" placeholder="https://neo.jmnl.nl/juiceshop-ctf" maxlength="200">
+      <button type="submit" class="small" name="action" value="set">Use this server</button>
+      {{if .CentralOverride}}<button type="submit" class="small secondary" name="action" value="default">Back to the default{{if .CentralDefault}} ({{.CentralDefault}}){{end}}</button>{{end}}
+      <button type="submit" class="small secondary" name="action" value="none">No central server</button>
+    </form>
+  {{end}}
+</details>
+{{end}}
+</main>
+</body>
+</html>
+{{end}}

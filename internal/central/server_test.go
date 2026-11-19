@@ -336,7 +336,9 @@ func TestEventFeed(t *testing.T) {
 	e.join(bcode, "Bram")
 	e.join("23456789ab", "Guess")
 	e.report(ja.Token, map[string]time.Time{"scoreBoardChallenge": t0})
-	rows := func(q string) int { return strings.Count(e.get(base+"/admin/events"+q).Body.String(), `<tr class="ev-`) }
+	rows := func(q string) int {
+		return strings.Count(e.get(base+"/admin/events"+q).Body.String(), `<tr class="ev-`)
+	}
 	all := rows("")
 	if all < 6 {
 		t.Fatalf("feed has %d rows", all)

@@ -1,11 +1,11 @@
-# ctf-central: receives the reports and serves the leaderboard (DESIGN.md §8)
+# ctf-central: games, joins, reports, the boards and admin (docs/VERSION-1-1.md §5, §6)
 #
 # Build context is the REPOSITORY ROOT, not this directory:
 #
-#   docker build -f deploy/deploy/docker/Dockerfile.central -t juiceshop-ctf-central:latest .
+#   docker build -f deploy/docker/Dockerfile.central -t juiceshop-ctf-central:latest .
 #
 # which is also the shape of the node.conf entry in jmnl-external-servers
-#   "juiceshop-ctf-central:latest|../projects/juiceshop-ctf|../projects/juiceshop-ctf/deploy/deploy/docker/Dockerfile.central"
+#   "juiceshop-ctf-central:latest|../projects/juiceshop-ctf|../projects/juiceshop-ctf/deploy/docker/Dockerfile.central"
 #
 # The result is FROM scratch: one static binary, CA certificates, a passwd
 # line for the non-root user, nothing else. There is no shell to exec into and

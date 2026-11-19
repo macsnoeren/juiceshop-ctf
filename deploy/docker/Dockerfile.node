@@ -1,0 +1,59 @@
+# juiceshop-ctf: Juice Shop and ctf-node in ONE image (docs/VERSION-1-1.md §3.1)
+#
+# Build context is the REPOSITORY ROOT:
+#
+#   docker build -f deploy/docker/Dockerfile.node --build-arg VERSION=$(git describe --tags --always --dirty) -t juiceshop-ctf .
+#   (or: make images)
+#
+# Run it anywhere — a laptop, a VM, a Flatcar node:
+#
+#   docker run -d --name juiceshop-ctf -p 80:80 -v juiceshop-ctf:/var/lib/ctf \
+#     --cap-drop ALL --cap-add SETUID --cap-add SETGID --security-opt no-new-privileges \
+#     juiceshop-ctf
+#
+#   ctf-node (the keeper)   uid 0, PID 1, SETUID+SETGID only: starts the two below, nothing else
+#    ├─ node build/app.js   uid 65532 (Juice Shop's own user), no capabilities
+#    └─ ctf-node -serve     uid 10001, no capabilities: :80, /var/lib/ctf/node.db (0700)
+#
+# WHAT IS UNUSUAL HERE:
+#
+#   - The image runs as ROOT on purpose: the keeper must start Juice Shop
+#     and ctf-node as their own users. It holds only SETUID and SETGID, reads
+#     no network input, and ctf-node refuses to start if it has any privilege.
+#   - CMD is reset: the base image's CMD is Juice Shop's script, which would
+#     otherwise be passed to ctf-node as an argument.
+#   - The root filesystem cannot be read-only: Juice Shop rewrites its own
+#     database, translations and frontend under /juice-shop on every start
+#     (VERSION-1-1.md §3.1, T1.1-03). Only /juice-shop/logs is worth a tmpfs.
+#   - CTF_CENTRAL_URL is neo's: not a secret, and the student page can change
+#     it before joining. Nothing else in the image differs between students.
+#
+# >>> Upgrading Juice Shop is a new FROM tag, the fixtures and the catalogue
+# captured again (internal/juiceshop/testdata/README.md), and tests/e2e.sh.
+
+FROM golang:1.26.10-alpine3.24 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+COPY web ./web
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath \
+      -ldflags "-s -w -X github.com/macsnoeren/juiceshop-ctf/internal/shared/version.Version=${VERSION}" \
+      -o /out/ctf-node ./cmd/ctf-node \
+ && mkdir -p /out/var/lib/ctf
+
+FROM bkimminich/juice-shop:v20.3.0
+COPY --from=build /out/ctf-node /ctf-node
+# The node's directory: 10001 and 0700. A named volume mounted here is
+# initialised from it, ownership and mode included.
+COPY --from=build --chown=10001:10001 --chmod=0700 /out/var/lib/ctf /var/lib/ctf
+ENV CTF_CENTRAL_URL=https://neo.jmnl.nl/juiceshop-ctf
+USER 0:0
+WORKDIR /
+EXPOSE 80
+VOLUME /var/lib/ctf
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --start-interval=2s --retries=3 CMD ["/ctf-node", "-healthcheck"]
+ENTRYPOINT ["/ctf-node"]
+CMD []
