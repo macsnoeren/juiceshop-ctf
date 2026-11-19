@@ -1,8 +1,8 @@
 // Package config reads the environment variables of DESIGN.md §9.
 //
 // Every binary is configured from the environment only, because that is what
-// both docker compose (`environment:` and `env_file:`) and the Flatcar node
-// (/etc/jmnl/juiceshop-ctf/*.env) deliver. There are no config files to mount
+// docker compose (`environment:` and `env_file:`), `docker run -e` and an
+// init script all deliver. There are no config files to mount
 // and no flags to forget in a compose file.
 //
 // Errors are collected rather than returned one at a time, so a container that

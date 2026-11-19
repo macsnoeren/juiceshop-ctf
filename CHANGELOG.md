@@ -37,7 +37,8 @@ The answer to the first student lab (F1–F11 in VERSION-1-1.md §1).
   personal return code where a VM is reachable by others.
 - Join online, queued while the central server is unreachable, or with no
   central server at all; the central server can be changed on the page
-  before joining (F10). Everything remembered in `node.db` (F11).
+  before joining (F10), and a VM built without one asks *Which central
+  server?* before the join form. Everything remembered in `node.db` (F11).
 - *Restart Juice Shop* and *Forget* on the student's page; the operator's
   *remove* does what *Forget* does.
 
@@ -57,8 +58,9 @@ The answer to the first student lab (F1–F11 in VERSION-1-1.md §1).
   the `juiceshop-ctf` image, and package the disk as a VirtualBox OVA and a
   VMware `.vmx`. Two adapters by DHCP (NAT, host-only), no SSH, root locked,
   never joined. `deploy/vm/test.sh` boots both exported disks on SATA with
-  e1000 adapters and checks the CTF. This replaces the Flatcar node
-  `cybersecurity-1` of jmnl-external-servers.
+  e1000 adapters and checks the CTF. The central server it joins by default
+  is the build's `CENTRAL_URL` (a repository variable in a release); the
+  repository names none, and without it the student types the address.
 
 **Releases**
 - A `vX.Y.Z` tag releases everything at once (GitHub Actions): the tests,

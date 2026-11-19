@@ -108,7 +108,7 @@ func lab10(t *testing.T, path string) {
 		`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`,
 		migrations[0],
 		`INSERT INTO schema_migrations VALUES (1, '2026-11-18T10:00:00.000Z')`,
-		`INSERT INTO instances (id, token_hash, created_at, last_report_at, agent_version) VALUES ('cybersecurity-1', 'h', '2026-11-18T10:00:00.000Z', '2026-11-18T12:00:00.000Z', '0.1.0')`,
+		`INSERT INTO instances (id, token_hash, created_at, last_report_at, agent_version) VALUES ('lab-1', 'h', '2026-11-18T10:00:00.000Z', '2026-11-18T12:00:00.000Z', '0.1.0')`,
 		`INSERT INTO challenges (key, name, category, difficulty) VALUES ('scoreBoardChallenge', 'Score Board', 'Miscellaneous', 1)`,
 		`INSERT INTO scoring VALUES (1, 111) ON CONFLICT (difficulty) DO UPDATE SET points = 111`,
 	} {
@@ -122,7 +122,7 @@ func lab10(t *testing.T, path string) {
 		if i == len(names)-1 {
 			ended = "NULL"
 		}
-		q := fmt.Sprintf(`INSERT INTO participants (id, instance_id, registration_id, name, registered_at, ended_at) VALUES (%d, 'cybersecurity-1', 'r%d', '%s', '2026-11-18T10:0%d:00.000Z', %s)`, i+1, i, n, i, ended)
+		q := fmt.Sprintf(`INSERT INTO participants (id, instance_id, registration_id, name, registered_at, ended_at) VALUES (%d, 'lab-1', 'r%d', '%s', '2026-11-18T10:0%d:00.000Z', %s)`, i+1, i, n, i, ended)
 		if _, err := db.Exec(q); err != nil {
 			t.Fatal(err)
 		}
@@ -164,7 +164,7 @@ func TestMigrationBringsTheLabBack(t *testing.T) {
 		}
 	}
 	ps, _ := st.GameParticipants(g, at(0))
-	if ps[0].LegacyInstance != "cybersecurity-1" {
+	if ps[0].LegacyInstance != "lab-1" {
 		t.Error("the 1.0 instance id is not kept for reference")
 	}
 	for _, tbl := range []string{"instances", "scoring"} {

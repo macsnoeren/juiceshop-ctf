@@ -3,7 +3,7 @@
 # one in the VMware zip — the way those hypervisors present them, and checks
 # the CTF answers. Runs in the builder container, from deploy/vm/build.sh.
 #
-#   test.sh OUTDIR VERSION
+#   test.sh OUTDIR VERSION [CENTRAL_URL]
 #
 # The hardware is VirtualBox's and VMware's, not QEMU's favourite: the disk
 # on an AHCI (SATA) controller, two Intel e1000 adapters, the first with the
@@ -12,14 +12,16 @@
 # test are never written.
 #
 # Checked per disk: /ctf/ answers and asks to join (nothing of anyone in
-# it), its central server is the image's default, /juiceshop/ is Juice Shop,
-# and there is no SSH server.
+# it) and a join goes to the central server it was built with (CENTRAL_URL)
+# — or, built without one, it asks for the central server first;
+# /juiceshop/ is Juice Shop, and there is no SSH server.
 #
 # What this cannot check: the import into VirtualBox or VMware itself (the
 # OVF and the .vmx). That is the operator's check in deploy/vm/README.md.
 set -euo pipefail
 
-out="$1" version="$2"
+out="$1" version="$2" central="${3:-}"
+central="${central%/}"   # ctf-node drops a trailing slash too
 name="juiceshop-ctf"
 accel="${ACCEL:-kvm}"
 work="$(mktemp -d)"
@@ -52,10 +54,17 @@ check() { # check WHAT
         sleep 1
     done
     page="$(curl -s --max-time 5 "$B/ctf/")"
-    grep -q 'Join the CTF' <<<"$page" || fail "$what: /ctf/ does not answer, or does not ask to join"
-    ok "/ctf/ answers and asks to join"
-    grep -q 'neo.jmnl.nl/juiceshop-ctf' <<<"$page" || fail "$what: the default central server is not neo's"
-    ok "the central server is the image's default"
+    if [ -n "$central" ]; then
+        grep -q 'Join the CTF' <<<"$page" || fail "$what: /ctf/ does not answer, or does not ask to join"
+        ok "/ctf/ answers and asks to join"
+        # The page's "A join goes to <code>…</code>": the build's CENTRAL_URL.
+        grep -qF "A join goes to <code>$central</code>" <<<"$page" || fail "$what: a join does not go to $central"
+        ok "a join goes to $central"
+    else
+        # Built without CENTRAL_URL: the page asks for one before the join.
+        grep -q 'Which central server?' <<<"$page" || fail "$what: /ctf/ does not answer, or does not ask for the central server"
+        ok "/ctf/ answers and asks for the central server"
+    fi
     # Captured first, then grepped: `curl | grep -q` under pipefail fails
     # when grep stops early and curl gets SIGPIPE on the rest of the page.
     for _ in $(seq 120); do

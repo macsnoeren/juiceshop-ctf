@@ -4,7 +4,7 @@
 #   ./start.sh            build, start, wait until healthy, print the addresses
 #   ./stop.sh [--wipe]    stop (--wipe: and forget every game and VM)
 #
-#            uplink (stands in for VirtualBox's NAT: the way to neo)
+#            uplink (stands in for VirtualBox's NAT: the way to the central server)
 #   ctf-central ────────┬──────────────┬──────────────┐
 #                      vm1            vm2            vm3        juiceshop-ctf, one container each
 #                       │ lab1         │ lab2         │ lab3    INTERNAL: stands in for host-only
@@ -17,8 +17,8 @@
 #
 # >>> /juiceshop-ctf/admin/ has accounts, and a fresh database has none: the
 # first visitor gets the setup page and becomes the admin. Here that is you,
-# because everything is published on 127.0.0.1 only; on neo nginx's
-# allow-list makes sure of it.
+# because everything is published on 127.0.0.1 only; in production an
+# allow-list in the reverse proxy can make sure of it.
 #
 # Ports: CTF_CENTRAL_PORT (8090), CTF_VM_PORT_1..3 (8091..8093).
 

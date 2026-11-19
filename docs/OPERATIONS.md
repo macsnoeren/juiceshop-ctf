@@ -1,15 +1,16 @@
 # Running a lab
 
 For the person who runs a Juice Shop CTF with a class. You need: the central
-server (on neo: `https://neo.jmnl.nl/juiceshop-ctf/`, admin at
-`…/juiceshop-ctf/admin/`, behind an IP allow-list and its own login), and the
-CTF VM (`juiceshop-ctf-<version>-virtualbox.ova`, or `-vmware.zip` for
-VMware), built with `make vm`. How it is made is in
+server (the image `macsnoeren/juiceshop-ctf-central`, admin at
+`<server>/admin/` with its own login; behind a reverse proxy, ideally with
+an IP allow-list in front of admin as well), and the CTF VM
+(`juiceshop-ctf-<version>-virtualbox.ova`, or `-vmware.zip` for VMware), from
+a release or built with `CENTRAL_URL=<your server> make vm`. How it is made is in
 [deploy/vm/README.md](../deploy/vm/README.md); the students'
 sheet is [deploy/vm/STUDENT.md](../deploy/vm/STUDENT.md).
 
 ```
- each student's laptop (VirtualBox/VMware)                              neo
+ each student's laptop (VirtualBox/VMware)                              a server
  Kali ── host-only ──► CTF VM (Juice Shop + ctf-node) ── NAT ──►  central server: games, boards, admin
 ```
 
@@ -21,8 +22,9 @@ managing the others.
 - **The very first time** admin is opened on a new central server, it shows
   the **setup page**: make the first account there (a username and a
   password of at least 10 characters). Until that is done, whoever opens
-  admin first becomes its owner. On neo the IP allow-list keeps that to you;
-  anywhere else, open admin yourself right after the server starts.
+  admin first becomes its owner. An IP allow-list in the reverse proxy keeps
+  that to you; without one, open admin yourself right after the server
+  starts.
 - **Logging in**: *Keep me logged in* (on by default) keeps this browser
   logged in for 30 days after its last use. Without it, the login ends with
   the browser, or after 12 hours of not using it.
@@ -71,7 +73,7 @@ managing the others.
 |----------|----------|----|
 | "Unknown join code" | typo, or an old code | give the code again (upper case and dashes are fine) |
 | "This game is not open yet" / "closed" | the game's state | *Open for joining* |
-| "Waiting for the central server" | the VM cannot reach neo (NAT adapter, network) | nothing: they play on, the join and every solve arrive when it can |
+| "Waiting for the central server" | the VM cannot reach the central server (NAT adapter, network) | nothing: they play on, the join and every solve arrive when it can |
 | "Join again" with a message | the central server no longer knows the VM's token (game deleted) | they join again; their solves on the VM are kept |
 | The shop is broken | they broke it (there is a DoS challenge) | *Restart Juice Shop* on their CTF page: the progress comes back |
 | They want to start over / hand the VM on | — | *Forget* on their CTF page (they type `forget`) |
@@ -117,13 +119,16 @@ Before deleting, *Export CSV* on the game page keeps the results.
   that has never joined anything. A VM you joined a game with while testing
   carries that membership; every copy of it would report as you (the central
   server flags it as `two_boots`). Test on an imported copy, and throw it away.
-- **Another central server.** The image points at neo. A VM can be pointed
+- **Another central server.** The image points at the central server it was
+  built with (`CENTRAL_URL`, deploy/vm/README.md), or at none: then its page
+  asks *Which central server?* before the join, so tell the class the
+  address (the one you open admin on, without `/admin/`). A VM can be pointed
   elsewhere on its own CTF page (*Central server*, before joining) — or set
   to none, and then the student plays on the VM alone with a local score.
 - **No central server at all** works too: the page shows the score by the
   scoring table, nothing is reported.
-- **A new version** is a new image to import: there is no path from neo into
-  thirty VirtualBoxes (`make vm` again). The game page shows each VM's version, and a 1.0 VM
+- **A new version** is a new image to import: there is no path from the central
+  server into thirty VirtualBoxes (`make vm` again). The game page shows each VM's version, and a 1.0 VM
   that still reports shows up in the feed as `legacy`.
 
 ## 5. Trying it without a class

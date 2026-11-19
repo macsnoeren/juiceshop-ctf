@@ -18,8 +18,8 @@ import (
 // logged-in admin account (auth.go; the setup page makes the first), and
 // every form carries a CSRF token as well, so a page in the operator's
 // browser cannot make them clear a game. Every action is written to the
-// event feed, once, with the account that did it. On neo nginx keeps its IP
-// allow-list in front of <base>/admin/ as a second lock.
+// event feed, once, with the account that did it. An IP allow-list in the
+// reverse proxy in front of <base>/admin/ is a good second lock.
 //
 //	GET  <base>/admin/                                games, settings
 //	POST <base>/admin/games                           create (join code shown once)

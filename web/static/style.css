@@ -104,7 +104,7 @@ details.card[open] summary { margin-bottom: 12px; }
 label { display: block; color: var(--muted); font-size: .9rem; margin-top: 14px; }
 label.inline, label.check { display: inline-flex; align-items: center; gap: 8px; margin: 10px 18px 0 0; color: var(--text); font-size: 1rem; }
 label.check { display: flex; }
-input[type=text], input[type=password], input[type=datetime-local], input:not([type]), select {
+input[type=text], input[type=password], input[type=url], input[type=datetime-local], input:not([type]), select {
   width: 100%; font: inherit; color: var(--text); padding: 12px 14px; margin-top: 6px; background: transparent;
   border: 1px solid var(--line-strong); border-radius: 4px; }
 input:hover, select:hover { border-color: var(--faint); }

@@ -7,16 +7,16 @@ otherwise. The work is broken into small, testable tasks in
 [TASK-1-1.md](TASK-1-1.md).
 
 **How the lab runs.** The CTF node is not a server. It is a **VM**, made once
-from the Flatcar node `cybersecurity-1`, that every student imports into
+from one installed node, that every student imports into
 their own VirtualBox next to **Kali Linux**. That pair is the student's lab:
 they attack the Juice Shop in the CTF VM from Kali, over a VirtualBox network
 the two share and nobody else is on. The CTF VM has one more way out — to the
-central server on `neo.jmnl.nl`, where the operator follows every student.
+central server, where the operator follows every student.
 
 ```
  the student's laptop (VirtualBox)
  ┌──────────────────────────────────────────────────────────┐
- │  Kali Linux ── lab network (host-only) ──► CTF VM        │       neo.jmnl.nl
+ │  Kali Linux ── lab network (host-only) ──► CTF VM        │       central server
  │   browser, Burp, nmap      (DHCP)          juiceshop-ctf ─┼─NAT──► /juiceshop-ctf/
  │                                            (one container)│       board, admin
  └──────────────────────────────────────────────────────────┘
@@ -57,12 +57,11 @@ lab, nobody else can reach the Juice Shop.
 | F7 | Repository and software not well structured | Three binaries, a flat `internal/`, test setup mixed with images (§1.6) | New layout (§7) |
 | F8 | Leaderboard could be more spectacular, with click-through | Plain tables (§1.7) | New board (§6) |
 | — | Found while analysing: an admin reset reaches a random VM | Commands are queued per instance, and all VMs are that instance (§1.1) | Commands per participant (§2.2) |
-| — | Found while analysing: a class behind NAT is one address to neo | The 1.0 door limits attempts per IP; 1.1's join endpoint must not (§1.8) | Limits per code and per participant (§5.6) |
+| — | Found while analysing: a class behind NAT is one address to the central server | The 1.0 door limits attempts per IP; 1.1's join endpoint must not (§1.8) | Limits per code and per participant (§5.6) |
 
 ### 1.1 Thirty VMs, one instance (F1, F6)
 
-The node's compose part sets `CTF_INSTANCE_ID: cybersecurity-1`
-(jmnl-external-servers, `nodes/cybersecurity-1/compose.d/60-juiceshop-ctf.yml`)
+The node's compose part sets one `CTF_INSTANCE_ID`
 and every VM imported from the one image carries the same `agent.env`, so every
 agent reports as the same instance with the same token. In `MergeReport` (`internal/store/merge.go`), a
 report whose registration id the central server does not know yet runs
@@ -90,7 +89,7 @@ from the shared identity.
 ### 1.2 Cookies are the only memory (F2, F11)
 
 The door's only record of a student in the browser is the gate cookie
-`jmnl_ctf_gate` (`Path=/`, HttpOnly, 14 days; `setGateCookie` in
+`ctf_gate` (`Path=/`, HttpOnly, 14 days; `setGateCookie` in
 `internal/status/server.go`). Juice Shop's challenges make students edit and
 delete cookies — the `token` JWT, cookie editors, "clear site data" — and the
 gate cookie goes with them. Getting back in then takes the **shared** access
@@ -109,8 +108,8 @@ token* per row and nothing that acts on a whole session.
 
 The access code is `CTF_ACCESS_CODE` in ctf-status's environment
 (`cmd/ctf-status/main.go`); the central server's instances come from
-`CTF_SEED` (`cmd/ctf-central/main.go`), generated for both sides by
-`make-keys.sh` in jmnl-external-servers. Changing a code means a bundle, and
+`CTF_SEED` (`cmd/ctf-central/main.go`), generated for both sides by a
+script in the deployment. Changing a code means a new deployment, and
 the database the central server already has is not the source of truth.
 
 ### 1.5 No central, no node (F10)
@@ -234,7 +233,7 @@ POST /api/v2/join                                      (no token yet)
   "node": { "uid": "…random, made at this join…", "version": "1.1.0", "juiceshop": "20.3.0" } }
 
 201 { "participant": 41, "token": "ctfp_…", "game": {"id": 7, "name": "Class 2A", "slug": "2a-19nov",
-      "state": "running", "ends_at": "…"}, "board": "https://neo.jmnl.nl/juiceshop-ctf/g/2a-19nov/" }
+      "state": "running", "ends_at": "…"}, "board": "https://ctf.example.org/g/2a-19nov/" }
 403 { "error": "unknown join code" }        409 { "error": "game closed" }
 
 POST /api/v2/report                                    Authorization: Bearer ctfp_…
@@ -289,7 +288,7 @@ puts them together, for a deployment that is one image and one container:
  │   supervises ──► node build/app.js                  uid 65532 │
  │                  Juice Shop, as a child process               │
  │   polls 127.0.0.1:3000, receives its webhook                  │
- │   /var/lib/ctf/node.db  (0700, uid 10001)  ── HTTPS ──► neo   │
+ │   /var/lib/ctf/node.db  (0700, uid 10001)  ─ HTTPS ─► central │
  └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -343,7 +342,7 @@ Running it anywhere, for a test or without Flatcar at all:
 ```sh
 docker run -d --name juiceshop-ctf -p 80:80 \
   -v juiceshop-ctf:/var/lib/ctf \
-  -e CTF_CENTRAL_URL=https://neo.jmnl.nl/juiceshop-ctf \
+  -e CTF_CENTRAL_URL=https://ctf.example.org \
   --cap-drop ALL --cap-add SETUID --cap-add SETGID --security-opt no-new-privileges \
   juiceshop-ctf:1.1
 ```
@@ -389,7 +388,7 @@ Kali, and that is VirtualBox's job:
 
 | Adapter on the CTF VM | VirtualBox mode | For |
 |-----------------------|-----------------|-----|
-| 1 | **NAT** | the way out, to `neo.jmnl.nl` |
+| 1 | **NAT** | the way out, to the central server |
 | 2 | **Host-only**, shared with Kali | the lab |
 
 - **Nothing is configured for either.** Both get their address from
@@ -413,7 +412,7 @@ join for re-entry instead of the shared code.
 ### 4.3 Without a central server (F10)
 
 `CTF_CENTRAL_URL` becomes optional; it is not a secret and the image may
-carry neo's URL as the default.
+carry a central server's URL as the default (the build arg `CENTRAL_URL`).
 
 - **Central configured but unreachable at join:** the node accepts the name
   and code, puts the join in the outbox, and the student plays straight away.
@@ -531,15 +530,15 @@ puts the whole room behind one.
 
 ### 5.7 Admin access
 
-Still guarded by nginx (allow list + password) as on neo today. With
+Still guarded by nginx (allow list + password), as in 1.0. With
 destructive game actions, a login of its own becomes worth having — decision
 D4.
 
 > **Done after all, in 1.1** (`internal/central/auth.go`): admin accounts in
 > the database, the first one made on a setup page while there is none, a
 > users page to add and remove the others, and "keep me logged in" for 30
-> days. No TOTP. nginx's allow-list stays in front on neo, and is what keeps
-> the setup page to the operator on a fresh server.
+> days. No TOTP. An allow-list in the reverse proxy is still worth keeping in
+> front: it is what keeps the setup page to the operator on a fresh server.
 
 ---
 
@@ -609,15 +608,15 @@ deployment repository already does.
 - **Node:** on first start, ctf-node imports `state.json` if it finds one: the
   solves and continue codes come along, the registration does not (it belonged
   to the shared identity). The student joins a game with the join code.
-- **jmnl-external-servers, the CTF node:** one CTF container instead of three
+- **The deployment, the CTF node:** one CTF container instead of three
   (`juiceshop-ctf`, publishing port 80, decision D9 for what stays beside it);
   `agent.env` and `status.env` go — the image needs no secret;
   `CTF_INSTANCE_ID` and the gate go; the README gets the export procedure.
   Nothing changes for the network: both adapters already work from
   VirtualBox's DHCP.
-- **jmnl-external-servers, neo:** `central.env` (`CTF_SEED`) and the seed half
-  of `make-keys.sh` go; the vhost and backup of `87-juiceshop-ctf.yml` stay.
-- **Updating the students' VMs:** there is no path from neo into thirty
+- **The deployment, the central server:** `central.env` (`CTF_SEED`) and the
+  script that made its seed go; its vhost and backup stay.
+- **Updating the students' VMs:** there is no path from the central server into thirty
   VirtualBoxes, and there does not need to be. A new version is a new VM to
   import; the version each VM runs is in its reports and shown in admin, so an
   old VM is visible.
@@ -637,7 +636,7 @@ deployment repository already does.
 | D7 | Juice Shop and the agent in one container | **Yes** (§3.1), with the two-user split inside it |
 | D8 | The lab network | **Decided:** NAT + host-only, both from VirtualBox's DHCP, nothing configured; the student finds the address (§4.2) |
 | D10 | First blood: points or a mark | **Decided:** a mark only, by time of receipt (§6) |
-| D9 | What else runs on a student VM | `juiceshop-ctf` only, on Alpine Linux with Docker and chrony. *Revised in 1.1:* the VM is no longer a Flatcar node of jmnl-external-servers but built by the project itself (`make vm`, deploy/vm/README.md): one command, nothing to install but Docker, for VirtualBox and VMware alike; and nobody reaches thirty VMs' logs anyway |
+| D9 | What else runs on a student VM | `juiceshop-ctf` only, on Alpine Linux with Docker and chrony. *Revised in 1.1:* the VM is no longer a Flatcar node installed by hand but built by the project itself (`make vm`, deploy/vm/README.md): one command, nothing to install but Docker, for VirtualBox and VMware alike; and nobody reaches thirty VMs' logs anyway |
 
 ---
 
@@ -647,4 +646,4 @@ The work is in [TASK-1-1.md](TASK-1-1.md): 60 small tasks in nine phases, each
 with the check that says it is done, in the order to build them — from the
 spikes that settle the open questions of §2.1 and §3.1, through the central
 server, admin, the node and the board, to the end-to-end tests and the
-deployment in jmnl-external-servers.
+deployment.

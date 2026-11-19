@@ -242,13 +242,13 @@ func TestJoinLimits(t *testing.T) {
 
 func TestLegacyReportIsGone(t *testing.T) {
 	e := newEnv(t)
-	v1 := `{"protocol":1,"instance":"cybersecurity-1","sent_at":"2026-11-18T10:00:00Z","agent_version":"0.1.0","juiceshop":{"version":"20.3.0","reachable":true},"registration":null,"challenges":[]}`
+	v1 := `{"protocol":1,"instance":"lab-1","sent_at":"2026-11-18T10:00:00Z","agent_version":"0.1.0","juiceshop":{"version":"20.3.0","reachable":true},"registration":null,"challenges":[]}`
 	w := e.req("POST", base+"/api/v1/report", strings.NewReader(v1), "Authorization", "Bearer ctf_abc", "X-Real-IP", "198.51.100.9")
 	if w.Code != 410 {
 		t.Fatalf("1.0 report: %d", w.Code)
 	}
 	evs := e.events(store.EvLegacy)
-	if len(evs) != 1 || evs[0].Address != "198.51.100.9" || !strings.Contains(evs[0].Text, "cybersecurity-1") {
+	if len(evs) != 1 || evs[0].Address != "198.51.100.9" || !strings.Contains(evs[0].Text, "lab-1") {
 		t.Errorf("legacy events %+v", evs)
 	}
 }

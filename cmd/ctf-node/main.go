@@ -22,7 +22,7 @@
 // image is the same for every student, and a VM's identity is made when the
 // student joins (VERSION-1-1.md §2.1).
 //
-//	CTF_CENTRAL_URL     the central server, e.g. https://neo.jmnl.nl/juiceshop-ctf;
+//	CTF_CENTRAL_URL     the central server, e.g. https://ctf.example.org;
 //	                    empty: none. The student page can change it before joining.
 //	CTF_GATE            "session" for the optional gate (§4.2); default: none
 //	CTF_DATA_DIR        default /var/lib/ctf (node.db; 0700, uid 10001)

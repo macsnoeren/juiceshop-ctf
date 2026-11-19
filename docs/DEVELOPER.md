@@ -8,12 +8,12 @@ is written down.
 
 | If you want… | read |
 |--------------|------|
-| what the CTF is, from the outside | [README.md](README.md) |
-| how an operator runs a lab with it (the behaviour you must keep) | [docs/OPERATIONS.md](docs/OPERATIONS.md) |
-| why 1.1 is built the way it is | [docs/VERSION-1-1.md](docs/VERSION-1-1.md), sections cited as `§n` in the code |
-| the wire format between VM and central server | [docs/PROTOCOL.md](docs/PROTOCOL.md) |
-| the 1.0 reasoning, still valid where 1.1 does not say otherwise | [docs/DESIGN.md](docs/DESIGN.md) |
-| how 1.1 was built, task by task (`T1.1-nn` in comments) | [docs/TASK-1-1.md](docs/TASK-1-1.md) |
+| what the CTF is, from the outside | [README.md](../README.md) |
+| how an operator runs a lab with it (the behaviour you must keep) | [docs/OPERATIONS.md](OPERATIONS.md) |
+| why 1.1 is built the way it is | [docs/VERSION-1-1.md](VERSION-1-1.md), sections cited as `§n` in the code |
+| the wire format between VM and central server | [docs/PROTOCOL.md](PROTOCOL.md) |
+| the 1.0 reasoning, still valid where 1.1 does not say otherwise | [docs/DESIGN.md](DESIGN.md) |
+| how 1.1 was built, task by task (`T1.1-nn` in comments) | [docs/TASK-1-1.md](TASK-1-1.md) |
 
 Read the README and OPERATIONS.md first (twenty minutes); open the other
 documents when a comment sends you there.
@@ -21,7 +21,7 @@ documents when a comment sends you there.
 ## 1. The system in one picture
 
 ```
- student's laptop (VirtualBox)                                           neo.jmnl.nl
+ student's laptop (VirtualBox)                                           a server
  ┌──────┐  host-only   ┌─ CTF VM: one container, juiceshop-ctf ──────┐  NAT   ┌──────────────┐
  │ Kali │ ───────────► │ :80  ctf-node -serve (uid 10001, no caps)   │ ─────► │ ctf-central  │
  └──────┘              │       /ctf/        the student's page       │ HTTPS  │ SQLite       │
@@ -39,7 +39,7 @@ There are **two programs**, both in Go, in one module:
   :80 and starts Juice Shop and itself as `-serve`. As **`-serve`** it is the
   unprivileged part that does all the work. As **`-signal`** it is a tiny
   helper the keeper uses to stop Juice Shop.
-- **`ctf-central`** runs once, on neo. It holds the games and their
+- **`ctf-central`** runs once, on a server of the operator's. It holds the games and their
   participants, receives the reports, and serves the boards and the admin.
 
 They talk only through three requests, all from the VM to the central server:
@@ -186,7 +186,7 @@ noticing. Each one has a reason in the code next to it.
 **The protocol**
 - `internal/shared/protocol` is the **only** definition of the wire format.
   Both programs compile against it, so they cannot disagree about a field.
-  A change there is a change to [docs/PROTOCOL.md](docs/PROTOCOL.md) too.
+  A change there is a change to [docs/PROTOCOL.md](PROTOCOL.md) too.
 - **VMs in the field are never updated.** A new version is a new image that
   thirty students must import again, so a newer central server will be talking
   to older VMs. Add fields; do not rename or remove them. Unknown command
@@ -273,8 +273,8 @@ noticing. Each one has a reason in the code next to it.
   `auth_test.go`), session cookies are stored as their SHA-256. Neither goes
   into an event or a log line.
 - **The setup page is open while there is no account.** That is by design
-  (the first admin of a fresh server); on neo nginx's allow-list keeps it to
-  the operator. Do not add a way to reach "no accounts" again on a running
+  (the first admin of a fresh server); an allow-list in the reverse proxy
+  can keep it to the operator. Do not add a way to reach "no accounts" again on a running
   server, such as deleting the last user.
 - Every POST on the student's page goes through its CSRF wrapper (`s.form`).
 - Every page is **complete without JavaScript**: `board.js` and `admin.js`
@@ -309,7 +309,7 @@ every step.
 **A change to what the VM reports or receives**
 1. Change `protocol.go`, and `validate.go` if the field has limits.
 2. Update the round-trip examples in `protocol_test.go`, and the same examples
-   in [docs/PROTOCOL.md](docs/PROTOCOL.md).
+   in [docs/PROTOCOL.md](PROTOCOL.md).
 3. Change the server side (`central/server.go`, `store/report.go`) and the
    node side (`node/central.go`).
 4. Ask what an **older VM** sends, and make sure the server still accepts it
@@ -334,7 +334,7 @@ every step.
 3. A destructive action asks for the game's name, as end, clear and delete do.
 4. If the VM must act on it, queue a command by token hash, the way `remove`
    queues `forget`.
-5. Update the table in [docs/OPERATIONS.md](docs/OPERATIONS.md) §3.
+5. Update the table in [docs/OPERATIONS.md](OPERATIONS.md) §3.
 
 **The student's page**
 1. Edit `web/node/page.html` and `node/page.go`. The logic goes into `node.go`
@@ -344,14 +344,14 @@ every step.
    encode its solves. `h.submit("/ctf/join", form)` posts a form the way the
    browser does, CSRF included.
 3. If students will see the change, update
-   [deploy/vm/STUDENT.md](deploy/vm/STUDENT.md).
+   [deploy/vm/STUDENT.md](../deploy/vm/STUDENT.md).
 
 **A new flag**
 1. Add a constant and the check in `store/report.go` (`solveFlags`, or in the
    report itself for flags such as `two_boots`).
 2. Write a store test that raises it, and one that does not raise it for
    honest play.
-3. Add a row to the flags table in [docs/OPERATIONS.md](docs/OPERATIONS.md).
+3. Add a row to the flags table in [docs/OPERATIONS.md](OPERATIONS.md).
 4. Run `make e2e`: its *no false flags* step must still pass.
 
 **A new environment variable**
@@ -364,7 +364,7 @@ every step.
 
 **Upgrading Juice Shop**
 1. Capture the fixtures again, following
-   [internal/juiceshop/testdata/README.md](internal/juiceshop/testdata/README.md),
+   [internal/juiceshop/testdata/README.md](../internal/juiceshop/testdata/README.md),
    and rebuild the catalogue from them (the command is in
    `internal/juiceshop/catalogue.go`).
 2. Change the `FROM` tag in `deploy/docker/Dockerfile.node` and
@@ -416,8 +416,8 @@ Three levels, from fast to thorough:
   built from uncommitted work calls itself `…-dirty`, and admin shows each VM's
   version.
 - **Releasing** is pushing a tag; GitHub Actions does the rest
-  ([.github/workflows/release.yml](.github/workflows/release.yml)):
-  1. In [CHANGELOG.md](CHANGELOG.md), replace `## 1.1.0 — unreleased` by the
+  ([.github/workflows/release.yml](../.github/workflows/release.yml)):
+  1. In [CHANGELOG.md](../CHANGELOG.md), replace `## 1.1.0 — unreleased` by the
      date, and commit that on `main`.
   2. `make release-check V=v1.1.0` — the same check the workflow starts with
      (`scripts/release-notes.sh`): a version `vX.Y.Z[-pre]` and a dated
@@ -434,7 +434,7 @@ Three levels, from fast to thorough:
   needs the repository secrets `DH_USERNAME` and `DH_PASSWORD` (a Docker Hub
   access token), as guacamole-datadiode does.
 - **Before a commit:** run `make test`. Add a line to
-  [CHANGELOG.md](CHANGELOG.md) under the unreleased version. Update the
+  [CHANGELOG.md](../CHANGELOG.md) under the unreleased version. Update the
   document that describes what you changed: PROTOCOL.md, OPERATIONS.md,
   STUDENT.md, or the header comment of the file.
 - **Commit subjects** are a plain sentence saying what changed and why
@@ -452,28 +452,26 @@ Three levels, from fast to thorough:
 
 ## 8. How it reaches production
 
-This repository builds the images; it does not deploy them. Deployment is
-done by **jmnl-external-servers**, where this repository is the git submodule
-`projects/juiceshop-ctf`:
+This repository builds and releases; it does not deploy. A release (a
+`vX.Y.Z` tag, [.github/workflows/release.yml](../.github/workflows/release.yml))
+makes two things, and where they run is the operator's business:
 
-- **The central server**: the image `juiceshop-ctf-central`, built from
-  `deploy/docker/Dockerfile.central`, runs on the node `neo-jmnl-node` behind
-  nginx at `https://neo.jmnl.nl/juiceshop-ctf/`.
-- **The student's VM** is not deployed from there: `make vm` builds it here
-  (Alpine Linux, Docker and the `juiceshop-ctf` image, by Packer under QEMU
-  in a container) as a VirtualBox OVA and a VMware `.vmx`, which the
-  operator hands out ([deploy/vm/README.md](deploy/vm/README.md)).
-
-The build in jmnl-external-servers reads this submodule's **working tree**, not its pinned
-commit. Changes go to neo only in a signed firmware bundle, which only the
-operator builds and uploads. Before changing anything there, read that
-repository's `CLAUDE.md` and README.
+- **The central server**: the image `macsnoeren/juiceshop-ctf-central` on
+  Docker Hub, built from `deploy/docker/Dockerfile.central`. It runs behind
+  whatever reverse proxy the operator has, on its own hostname or under a
+  path (`CTF_BASE_PATH`).
+- **The student's VM**: `make vm` (Alpine Linux, Docker and the
+  `juiceshop-ctf` image, by Packer under QEMU in a container) as a
+  VirtualBox OVA and a VMware `.vmx`, on the release page
+  ([deploy/vm/README.md](../deploy/vm/README.md)). Which central server it
+  joins by default is the build's `CENTRAL_URL`, in a release the
+  repository variable of that name; the repository itself names none.
 
 Two consequences for your changes:
 
-- **Migrations run on neo's real database**, which still holds the first lab.
-  Before a release that adds a migration, run the new ctf-central once on a
-  copy of the latest backup of `ctf-central-db`.
+- **Migrations run on real databases** that hold earlier labs. Before a
+  release that adds a migration, run the new ctf-central once on a copy of
+  a real `central.db`.
 - **A VM change reaches students only through a new OVA**, so keep a central
   server change compatible with the VMs already out there (§4).
 

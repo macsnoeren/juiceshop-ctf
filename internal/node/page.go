@@ -35,8 +35,8 @@ import (
 // cookie is gone, the next page view sets a new one).
 
 const (
-	csrfCookie    = "jmnl_ctf_csrf"
-	sessionCookie = "jmnl_ctf_session"
+	csrfCookie    = "ctf_node_csrf"
+	sessionCookie = "ctf_node_session"
 	sessionLife   = 14 * 24 * time.Hour
 	// GateTries wrong return codes per GateWindow, for the one student of
 	// this VM.

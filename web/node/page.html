@@ -54,7 +54,23 @@
 </section>
 
 {{$m := .Membership}}
-{{if or (not $m) (eq $m.Status "refused") (eq $m.Status "rejected")}}
+{{$ask := and (not $m) .CentralAsk}}
+{{if $ask}}
+<section class="card">
+  <h2>Which central server?</h2>
+  <p>This VM does not know the central server of your class yet. Type the address your teacher gives you;
+     then you join with your name and the join code.</p>
+  <form method="post" action="/ctf/central">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label for="url">Central server</label>
+    <input id="url" name="url" type="url" required placeholder="https://ctf.example.org" maxlength="200" autocomplete="url">
+    <p class="buttons">
+      <button type="submit" name="action" value="set">Use this server</button>
+      <button type="submit" class="secondary" name="action" value="none" formnovalidate>Play on this VM only</button>
+    </p>
+  </form>
+</section>
+{{else if or (not $m) (eq $m.Status "refused") (eq $m.Status "rejected")}}
 <section class="card">
   {{if $m}}
     <h2>Join again</h2>
@@ -132,6 +148,7 @@
   </form>
 </section>
 
+{{if not $ask}}
 <details class="card">
   <summary>Central server</summary>
   {{if $m}}
@@ -141,7 +158,7 @@
     <form method="post" action="/ctf/central">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <label for="url">Another central server</label>
-      <input id="url" name="url" placeholder="https://neo.jmnl.nl/juiceshop-ctf" maxlength="200">
+      <input id="url" name="url" placeholder="https://ctf.example.org" maxlength="200">
       <p class="buttons">
       <button type="submit" class="small" name="action" value="set">Use this server</button>
       {{if .CentralOverride}}<button type="submit" class="small secondary" name="action" value="default">Back to the default{{if .CentralDefault}} ({{.CentralDefault}}){{end}}</button>{{end}}
@@ -150,6 +167,7 @@
     </form>
   {{end}}
 </details>
+{{end}}
 {{end}}
 </main>
 </body>

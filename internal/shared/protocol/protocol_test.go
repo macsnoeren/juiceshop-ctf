@@ -19,7 +19,7 @@ var examples = map[string]struct {
 	into any
 }{
 	"join":          {`{"protocol":2,"name":"Zoë","code":"4ffpq7tq9f","joined_at":"2026-11-19T09:00:00Z","node":{"uid":"0123456789abcdef0123456789abcdef","version":"v1.1.0","juiceshop":"20.3.0"}}`, &JoinRequest{}},
-	"join-answer":   {`{"participant":41,"token":"ctfp_00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff","name":"Zoë","game":{"id":7,"name":"Class 2A","slug":"class-2a","state":"running","ends_at":"2026-11-19T11:00:00Z"},"board":"https://neo.jmnl.nl/juiceshop-ctf/g/class-2a/"}`, &JoinResponse{}},
+	"join-answer":   {`{"participant":41,"token":"ctfp_00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff","name":"Zoë","game":{"id":7,"name":"Class 2A","slug":"class-2a","state":"running","ends_at":"2026-11-19T11:00:00Z"},"board":"https://ctf.example.org/g/class-2a/"}`, &JoinResponse{}},
 	"error":         {`{"error":"unknown join code"}`, &ErrorResponse{}},
 	"report":        {`{"protocol":2,"sent_at":"2026-11-19T09:30:00Z","boot":"2026-11-19T08:59:12.431Z","node":{"uid":"0123456789abcdef0123456789abcdef","version":"v1.1.0","juiceshop":"20.3.0"},"juiceshop_reachable":true,"restore_failed":false,"solves":[{"key":"scoreBoardChallenge","solved_at":"2026-11-19T09:05:00Z","cheat":0.1},{"key":"directoryListingChallenge","solved_at":"2026-11-19T09:20:00Z"}],"commands_applied":["c-1a2b3c"]}`, &Report{}},
 	"report-answer": {`{"standing":{"rank":2,"of":18,"score":1350},"game":{"state":"running","ends_at":"2026-11-19T11:00:00Z"},"commands":[{"id":"c-1a2b3c","type":"forget"}]}`, &ReportResponse{}},
@@ -80,7 +80,7 @@ func TestReportValidation(t *testing.T) {
 	}{
 		{"protocol 1", func(r *Report) { r.Protocol = 1 }},
 		{"no sent_at", func(r *Report) { r.SentAt = time.Time{} }},
-		{"node uid", func(r *Report) { r.Node.UID = "cybersecurity-1" }},
+		{"node uid", func(r *Report) { r.Node.UID = "lab-1" }},
 		{"long version", func(r *Report) { r.Node.Version = strings.Repeat("v", 65) }},
 		{"long boot", func(r *Report) { r.Boot = strings.Repeat("b", 65) }},
 		{"empty key", func(r *Report) { r.Solves[0].Key = "" }},

@@ -6,7 +6,8 @@
 #             make the tag (manual run only) and a DRAFT GitHub release
 #   test      unit tests, the image test and the end-to-end test, at the tag
 #   docker    macsnoeren/juiceshop-ctf-central:  1.1.0, 1.1, latest   (amd64 + arm64)
-#   vm        the students' VM (deploy/vm/build.sh, Packer + QEMU with KVM):
+#   vm        the students' VM (deploy/vm/build.sh, Packer + QEMU with KVM),
+#             pointed at vars.CENTRAL_URL (below):
 #             juiceshop-ctf-v1.1.0-virtualbox.ova, -vmware.zip and .sha256 on the release
 #   publish   the draft release made public — only when docker AND vm succeeded
 #
@@ -22,8 +23,17 @@
 #
 # Needs two repository secrets (Settings → Secrets and variables → Actions),
 # the same names as guacamole-datadiode's: DH_USERNAME and DH_PASSWORD (a
-# Docker Hub access token with read/write). A failed run leaves the release
-# a draft: fix, delete the draft and the tag, and tag again.
+# Docker Hub access token with read/write). And, optionally, one repository
+# VARIABLE (same page, tab Variables): CENTRAL_URL, the central server the
+# released VM joins unless a student picks another on its page, e.g.
+# https://ctf.example.org. Without it the VM knows no central server and the
+# student types the address on the page. It is not in this file on purpose:
+# where a class's central server runs is the operator's business, not the
+# repository's. A failed run leaves the release a draft: fix, delete the
+# draft and the tag, and tag again.
+#
+# Why it failed shows as an annotation on the run's summary page; the
+# "Node.js 20 is deprecated" kind are warnings, never the cause.
 name: release
 
 on:
@@ -32,7 +42,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release, e.g. v1.1.0 — tagged on the branch chosen above'
+        description: 'Version to release: vMAJOR.MINOR.PATCH, e.g. v1.1.0 or v1.2.0-rc.1, with its section in CHANGELOG.md — tagged on the branch chosen above'
         required: true
 
 permissions:
@@ -53,7 +63,7 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -61,12 +71,24 @@ jobs:
         id: version
         env:
           TAG: ${{ inputs.version || github.ref_name }}
+          CENTRAL_URL: ${{ vars.CENTRAL_URL }}
         run: |
           set -euo pipefail
           bash scripts/release-notes.sh "$TAG" > notes.md
+          # ctf-node refuses to start on a malformed default, and the VM
+          # would then be useless: caught here, not after a 10-minute build.
+          if [ -n "$CENTRAL_URL" ] && ! [[ "$CENTRAL_URL" =~ ^https?://[^/?#@[:space:]]+(/[^?#[:space:]]*)?$ ]]; then
+            echo "::error title=CENTRAL_URL::the repository variable CENTRAL_URL is '$CENTRAL_URL': give http(s)://host[/path], or remove it"
+            exit 1
+          fi
           prerelease=false
           [[ "$TAG" == *-* ]] && prerelease=true
           docker_version="${TAG#v}"
+          if [ -n "$CENTRAL_URL" ]; then
+            central="The VM joins the central server \`${CENTRAL_URL%/}\` unless a student picks another on its CTF page (*Central server*)."
+          else
+            central="The VM has no central server built in: a student types its address on the CTF page (*Central server*), or plays on the VM alone."
+          fi
           cat >> notes.md <<EOF
 
           ## Downloads
@@ -76,6 +98,8 @@ jobs:
           | \`juiceshop-ctf-${TAG}-virtualbox.ova\` | VirtualBox: *File → Import Appliance…* |
           | \`juiceshop-ctf-${TAG}-vmware.zip\` | VMware Workstation, Player, Fusion: unzip, open the \`.vmx\` |
           | \`juiceshop-ctf-${TAG}.sha256\` | checksums of both |
+
+          ${central}
 
           The students' sheet: [deploy/vm/STUDENT.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/deploy/vm/STUDENT.md).
 
@@ -131,11 +155,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.tag }}
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - name: Unit tests (gofmt, vet, -race)
@@ -150,21 +174,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.tag }}
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DH_USERNAME }}
           password: ${{ secrets.DH_PASSWORD }}
 
       - name: Tags
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.NAMESPACE }}/${{ env.CENTRAL_IMAGE }}
           # 1.1.0 and 1.1, and latest — the last two only for a release, not
@@ -176,7 +200,7 @@ jobs:
             latest=${{ needs.prepare.outputs.prerelease == 'false' }}
 
       - name: Build and push the central server
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/docker/Dockerfile.central
@@ -213,7 +237,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.tag }}
 
@@ -230,6 +254,7 @@ jobs:
       - name: Build and test the VM
         env:
           VERSION: ${{ needs.prepare.outputs.tag }}
+          CENTRAL_URL: ${{ vars.CENTRAL_URL }}
         run: bash deploy/vm/build.sh
 
       - name: Attach it to the release

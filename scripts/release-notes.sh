@@ -16,26 +16,34 @@
 #     the date filled in: "— unreleased" means it is not finished. A
 #     pre-release may use the heading of the version it leads up to.
 #
-# Exit 0 and the notes on stdout, or exit 1 and the reason on stderr.
+# Exit 0 and the notes on stdout, or exit 1 and the reason on stderr. On
+# GitHub the reason is an ::error:: line, so it is an annotation on the run's
+# summary page and not only a line deep in the log.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+die() {
+    if [ "${GITHUB_ACTIONS:-}" = true ]; then
+        echo "::error title=release-notes::$*" >&2
+    else
+        echo "release-notes: $*" >&2
+    fi
+    exit 1
+}
+
 tag="${1:-}"
 if ! [[ "$tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?$ ]]; then
-    echo "release-notes: '$tag' is not a version: write vMAJOR.MINOR.PATCH, e.g. v1.1.0 or v1.2.0-rc.1" >&2
-    exit 1
+    die "'$tag' is not a version: write vMAJOR.MINOR.PATCH, e.g. v1.1.0 or v1.2.0-rc.1"
 fi
 version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
 pre="${BASH_REMATCH[4]}"
 
 heading="$(grep -m1 -E "^## ${version//./\\.}( |$)" CHANGELOG.md || true)"
 if [ -z "$heading" ]; then
-    echo "release-notes: CHANGELOG.md has no '## $version — <date>' section" >&2
-    exit 1
+    die "CHANGELOG.md has no '## $version — <date>' section"
 fi
 if [ -z "$pre" ] && grep -qi 'unreleased' <<<"$heading"; then
-    echo "release-notes: CHANGELOG.md still says '$heading': put the release date in it first" >&2
-    exit 1
+    die "CHANGELOG.md still says '$heading': put the release date in it first (a pre-release, v$version-rc.1, may go before)"
 fi
 
 # The section: from its heading to the next "## ", without the heading.

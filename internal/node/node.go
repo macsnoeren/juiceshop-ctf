@@ -34,8 +34,9 @@ type Keeper interface {
 
 // Config is the node's configuration (cmd/ctf-node).
 type Config struct {
-	// DefaultCentralURL is CTF_CENTRAL_URL: the image may carry neo's
-	// address. The page can override it while not joined (T1.1-37a).
+	// DefaultCentralURL is CTF_CENTRAL_URL: the image may carry one (the
+	// build arg CENTRAL_URL). The page can override it while not joined
+	// (T1.1-37a).
 	DefaultCentralURL string
 	Version           string
 	// Gate is CTF_GATE=session (VERSION-1-1.md §4.2).
@@ -178,7 +179,7 @@ func ValidateCentralURL(raw string) (string, error) {
 	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || len(raw) > 200 {
-		return "", errors.New("give the central server as http://… or https://…, e.g. https://neo.jmnl.nl/juiceshop-ctf")
+		return "", errors.New("give the central server as http://… or https://…, e.g. https://ctf.example.org")
 	}
 	return raw, nil
 }
@@ -455,8 +456,13 @@ type View struct {
 	CentralURL      string // where a new join would go
 	CentralDefault  string
 	CentralOverride bool
-	CanRestart      bool
-	Gate            bool
+	// CentralAsk: the image has no default and the page has made no choice
+	// (an address, or "none"), so the page asks for the central server
+	// before the join form. Without it a student on a VM built without
+	// CENTRAL_URL would join "on this VM only" without ever noticing.
+	CentralAsk bool
+	CanRestart bool
+	Gate       bool
 }
 
 // View returns the page's view of the state.
@@ -469,6 +475,7 @@ func (n *Node) View() View {
 	v := View{
 		Standing: st.Standing, LastReportAt: st.LastReportAt, Reachable: n.reachable, RestoreFailed: st.RestoreFailed,
 		JuiceShop: n.jsVersion, CentralURL: central, CentralDefault: n.cfg.DefaultCentralURL, CentralOverride: ov != "",
+		CentralAsk: n.cfg.DefaultCentralURL == "" && ov == "",
 		CanRestart: n.keeper != nil, Gate: n.cfg.Gate, Queued: st.Outbox != nil,
 	}
 	if st.Outbox != nil {

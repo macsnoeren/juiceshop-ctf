@@ -32,7 +32,7 @@ import (
 //
 // THE SETUP PAGE is open to whoever reaches it first while the database has
 // no account. That is the moment between installing and opening admin, and
-// on neo the allow-list in nginx keeps it to the home connection. Do not
+// an allow-list in the reverse proxy can keep it to the operator. Do not
 // publish a fresh central server without either that, or opening /admin/
 // yourself first.
 //

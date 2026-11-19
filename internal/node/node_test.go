@@ -412,7 +412,7 @@ func TestCentralLessSession(t *testing.T) {
 func TestAnotherCentralServer(t *testing.T) {
 	c := newCentral(t)
 	_, code := c.game(t, "Elsewhere")
-	h := newHarness(t, Config{DefaultCentralURL: "https://neo.invalid/juiceshop-ctf"})
+	h := newHarness(t, Config{DefaultCentralURL: "https://central.invalid/juiceshop-ctf"})
 	h.poll()
 	if w := h.submit("/ctf/central", url.Values{"url": {"ftp://x"}, "action": {"set"}}); w.Code != 400 {
 		t.Errorf("a bad address: %d", w.Code)
@@ -427,12 +427,42 @@ func TestAnotherCentralServer(t *testing.T) {
 		t.Errorf("changing the server while joined: %d", w.Code)
 	}
 	h.submit("/ctf/forget", url.Values{"confirm": {"forget"}})
-	if w := h.submit("/ctf/central", url.Values{"action": {"default"}}); w.Code != 200 || h.n.CentralURL() != "https://neo.invalid/juiceshop-ctf" {
+	if w := h.submit("/ctf/central", url.Values{"action": {"default"}}); w.Code != 200 || h.n.CentralURL() != "https://central.invalid/juiceshop-ctf" {
 		t.Errorf("back to the default after Forget: %d %s", w.Code, h.n.CentralURL())
 	}
 	h.submit("/ctf/central", url.Values{"action": {"none"}})
 	if h.n.CentralURL() != "" || strings.Contains(h.req("GET", "/ctf/", nil).Body.String(), `name="code"`) {
 		t.Error("no central server: the join form still asks for a code")
+	}
+}
+
+// TestAsksForCentral: an image without a default asks for the central server
+// before the join form, until an address or "Play on this VM only" is chosen.
+func TestAsksForCentral(t *testing.T) {
+	c := newCentral(t)
+	_, code := c.game(t, "Asked")
+	h := newHarness(t, Config{})
+	h.poll()
+	page := func() string { return h.req("GET", "/ctf/", nil).Body.String() }
+	if p := page(); !strings.Contains(p, "Which central server?") || strings.Contains(p, `action="/ctf/join"`) {
+		t.Fatal("no default, no choice: the page does not ask for the central server first")
+	}
+	if w := h.submit("/ctf/central", url.Values{"url": {c.URL}, "action": {"set"}}); w.Code != 200 || !strings.Contains(w.Body.String(), `name="code"`) {
+		t.Fatalf("after setting the address the join form asks for a code: %d", w.Code)
+	}
+	if r := h.join("Zoë", code); r.Outcome != JoinedOnline {
+		t.Fatalf("join: %v", r.Outcome)
+	}
+	h.submit("/ctf/forget", url.Values{"confirm": {"forget"}})
+	h.submit("/ctf/central", url.Values{"action": {"none"}})
+	if p := page(); strings.Contains(p, "Which central server?") || !strings.Contains(p, `action="/ctf/join"`) || strings.Contains(p, `name="code"`) {
+		t.Error("after Play on this VM only: a join form without a code, and no question")
+	}
+
+	d := newHarness(t, Config{DefaultCentralURL: c.URL})
+	d.poll()
+	if p := d.req("GET", "/ctf/", nil).Body.String(); strings.Contains(p, "Which central server?") || !strings.Contains(p, `name="code"`) {
+		t.Error("an image with a default asks for the central server")
 	}
 }
 

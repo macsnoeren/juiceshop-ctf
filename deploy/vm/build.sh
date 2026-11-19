@@ -23,7 +23,9 @@
 # The builder runs as you (the files in dist/ are yours) with /dev/kvm
 # passed in. The Alpine ISO is cached in dist/vm/cache between builds.
 #
-# Environment: VERSION (default: git describe), ALPINE_VERSION (default in
+# Environment: VERSION (default: git describe), CENTRAL_URL (the central
+# server the VM joins unless the student picks another; default none, see
+# deploy/docker/Dockerfile.node), ALPINE_VERSION (default in
 # juiceshop-ctf.pkr.hcl), VM_SKIP_TEST=1 to skip test.sh, VM_DEBUG=1 to keep
 # a VM whose build failed running for half an hour, to look at its screen.
 set -euo pipefail
@@ -63,7 +65,7 @@ if [ "${1:-}" = "--inside" ]; then
     bash deploy/vm/package.sh "$out/qemu/juiceshop-ctf.qcow2" "$out" "$VERSION"
     if [ "${VM_SKIP_TEST:-}" != 1 ]; then
         echo "== test"
-        ACCEL="$accel" bash deploy/vm/test.sh "$out" "$VERSION"
+        ACCEL="$accel" bash deploy/vm/test.sh "$out" "$VERSION" "${CENTRAL_URL:-}"
     fi
     rm -rf "$out/qemu" "$work"
     echo
@@ -77,8 +79,9 @@ cd "$(dirname "$0")/../.."
 VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
 mkdir -p dist/vm/work
 
-echo "== the CTF image, juiceshop-ctf:$VERSION"
-docker build -q -f deploy/docker/Dockerfile.node --build-arg VERSION="$VERSION" -t "juiceshop-ctf:$VERSION" . >/dev/null
+CENTRAL_URL="${CENTRAL_URL:-}"
+echo "== the CTF image, juiceshop-ctf:$VERSION, central server: ${CENTRAL_URL:-(none)}"
+docker build -q -f deploy/docker/Dockerfile.node --build-arg VERSION="$VERSION" --build-arg CENTRAL_URL="$CENTRAL_URL" -t "juiceshop-ctf:$VERSION" . >/dev/null
 docker save "juiceshop-ctf:$VERSION" | gzip -1 >dist/vm/work/juiceshop-ctf-image.tar.gz
 
 echo "== the builder, juiceshop-ctf-vm-builder"
@@ -91,6 +94,6 @@ fi
 tty=(); [ -t 1 ] && tty=(-t)
 exec docker run --rm -i "${tty[@]}" "${kvm[@]}" \
     --user "$(id -u):$(id -g)" \
-    -e VERSION="$VERSION" -e ALPINE_VERSION="${ALPINE_VERSION:-}" -e VM_SKIP_TEST="${VM_SKIP_TEST:-}" -e VM_DEBUG="${VM_DEBUG:-}" \
+    -e VERSION="$VERSION" -e CENTRAL_URL="$CENTRAL_URL" -e ALPINE_VERSION="${ALPINE_VERSION:-}" -e VM_SKIP_TEST="${VM_SKIP_TEST:-}" -e VM_DEBUG="${VM_DEBUG:-}" \
     -v "$PWD:/src" -w /src \
     juiceshop-ctf-vm-builder bash deploy/vm/build.sh --inside

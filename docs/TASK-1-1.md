@@ -19,9 +19,9 @@ import into VirtualBox and VMware themselves stays the operator's check. Where t
   and ctf-node (10001, no capabilities). `tests/image.sh` holds the checks of
   T1.1-04, -31, -38 and -39 on the real image.
 - **T1.1-11** is tested on a database built the way 1.0 built the lab's (one
-  instance, five students, four ended by the fifth), not on a copy of neo's.
-  Before the first 1.1 bundle reaches neo: run the 1.1 ctf-central once on a
-  copy of the backup of `ctf-central-db`.
+  instance, five students, four ended by the fifth), not on a copy of a real one.
+  Before 1.1 replaces 1.0 on a server: run the 1.1 ctf-central once on a
+  copy of its `central.db`.
 - **T1.1-15**: a wrong-code budget that is used up is a 429 *before* the code
   is checked, so it slows a guesser down; a correct code never uses it up.
 - **T1.1-22**: the cheat-score flag needs an average above 0.9 over at least
@@ -31,7 +31,7 @@ import into VirtualBox and VMware themselves stays the operator's check. Where t
   zone moved into the database (admin → Settings).
 - **T1.1-38**: only `/juice-shop/logs` gets a tmpfs; the other paths Juice
   Shop writes hold files the image ships (T1.1-03).
-- **T1.1-58/59** change jmnl-external-servers; nothing is uploaded.
+- **T1.1-58/59** change the deployment, which is not in this repository.
 
 ## Conventions
 
@@ -299,7 +299,7 @@ Spikes: throwaway code, the result written into VERSION-1-1.md.
   central server in use and lets it be changed (another URL, the default, or
   none) while the VM has not joined; stored in `node.db`; refused while
   joined.
-  **Done when** a node built with neo's URL joins a game on another central
+  **Done when** a node built with one central server's URL joins a game on another central
   server after the address is changed on its page, and the form is refused
   while joined.
 
@@ -421,21 +421,19 @@ All pages server-rendered, small script, no external assets; CSP unchanged.
 
 ---
 
-## Phase I — deployment (jmnl-external-servers)
+## Phase I — deployment
 
-These change the deployment repository and, through bundles, neo. Nothing is
-uploaded without the operator's explicit go.
+These change the deployment, which lives outside this repository. Nothing
+reaches a server without the operator's explicit go.
 
-- [x] **T1.1-58 neo.** `87-juiceshop-ctf.yml` without `CTF_SEED`, the image
-  from 1.1, `central.env` and the seed half of `make-keys.sh` removed; vhost
+- [x] **T1.1-58 The central server.** Deployed without `CTF_SEED`, the image
+  from 1.1, `central.env` and the script that made its seed removed; vhost
   and backup unchanged.
-  **Done when** `docker compose config -q`, `nginx -t` and
-  `flatcar-deployment/tests/run-tests.sh` pass.
+  **Done when** the deployment's own checks pass.
 
-- [x] **T1.1-59 The CTF VM.** `nodes/cybersecurity-1`: `juiceshop-ctf` and
-  `logging-proxy` only (D9), no secrets, no `CTF_INSTANCE_ID`, no gate.
-  **Done when** the node test (`nodes/cybersecurity-1/tests/e2e.sh`), adapted
-  to 1.1, passes.
+- [x] **T1.1-59 The CTF VM.** `juiceshop-ctf` and `logging-proxy` only (D9),
+  no secrets, no `CTF_INSTANCE_ID`, no gate.
+  **Done when** the node's end-to-end test, adapted to 1.1, passes.
 
 - [x] **T1.1-60 The VM image.** *(Built by `make vm` instead: never joined, so
   no Forget before export; `deploy/vm/test.sh` boots both exported disks.)* Install the node in VirtualBox from the build,

@@ -10,7 +10,7 @@ their Kali, and the central leaderboard shows, live and by name, who has
 solved what. Nobody types in a flag: the VM sees the solves and reports them.
 
 ```
- the student's laptop (VirtualBox)                                    neo.jmnl.nl
+ the student's laptop (VirtualBox)                                    a server
  Kali ── host-only ──► CTF VM: juiceshop-ctf ──────── NAT ─────────►  ctf-central
   browser, Burp        /ctf/        ctf-node: join, progress,          games and join codes,
                                     Restart, Forget                    boards per game, beamer,
@@ -29,7 +29,7 @@ that participant. The VM image is the same for everybody and holds no secret.
 | [docs/PROTOCOL.md](docs/PROTOCOL.md) | join, report and leave between VM and central server |
 | [docs/DESIGN.md](docs/DESIGN.md) | the design of 1.0, still the reasoning where 1.1 does not say otherwise |
 | [docs/TASK-1-1.md](docs/TASK-1-1.md) | how 1.1 was built, step by step |
-| [DEVELOPER.md](DEVELOPER.md) | for developers: how the code fits together, where things are, how to make and test a change |
+| [docs/DEVELOPER.md](docs/DEVELOPER.md) | for developers: how the code fits together, where things are, how to make and test a change |
 | [CHANGELOG.md](CHANGELOG.md) | |
 
 ## Try it
@@ -78,16 +78,28 @@ bash tests/image.sh     # the image: users, isolation inside the container, resp
 
 ## On a server
 
-`jmnl-external-servers` deploys the central server as signed Flatcar
-bundles, on `neo-jmnl-node` at `https://neo.jmnl.nl/juiceshop-ctf/` (with
-`/admin/` behind an IP allow-list as well as its own login).
-
-The students' VM is built here, for VirtualBox and VMware, with nothing but
-Docker ([deploy/vm/README.md](deploy/vm/README.md)):
+The central server is one container, from Docker Hub
+([deploy/docker/DOCKERHUB.md](deploy/docker/DOCKERHUB.md) has the options):
 
 ```sh
-make vm       # dist/vm/juiceshop-ctf-<version>-virtualbox.ova and -vmware.zip
+docker run -d --name ctf-central -p 8080:8080 -v ctf-central-db:/data \
+  macsnoeren/juiceshop-ctf-central:latest
 ```
+
+Open `/admin/` yourself right after it starts: the first visitor makes the
+first admin account. Behind a reverse proxy, an IP allow-list in front of
+`/admin/` is a good second lock.
+
+The students' VM is built here, for VirtualBox and VMware, with nothing but
+Docker ([deploy/vm/README.md](deploy/vm/README.md)), and points at your
+central server:
+
+```sh
+CENTRAL_URL=https://ctf.example.org make vm   # dist/vm/juiceshop-ctf-<version>-virtualbox.ova and -vmware.zip
+```
+
+A release takes that address from the repository variable `CENTRAL_URL`
+([.github/workflows/release.yml](.github/workflows/release.yml)).
 
 The image runs anywhere Docker does:
 

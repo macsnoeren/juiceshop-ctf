@@ -38,7 +38,7 @@ No token: the join code admits the VM.
 ```json
 {"participant":41,"token":"ctfp_00112233…eeff","name":"Zoë",
  "game":{"id":7,"name":"Class 2A","slug":"class-2a","state":"running","ends_at":"2026-11-19T11:00:00Z"},
- "board":"https://neo.jmnl.nl/juiceshop-ctf/g/class-2a/"}
+ "board":"https://ctf.example.org/g/class-2a/"}
 ```
 
 The token is `ctfp_` and 64 hex characters. The VM stores it in `node.db`

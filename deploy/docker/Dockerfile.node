@@ -25,8 +25,13 @@
 #   - The root filesystem cannot be read-only: Juice Shop rewrites its own
 #     database, translations and frontend under /juice-shop on every start
 #     (VERSION-1-1.md §3.1, T1.1-03). Only /juice-shop/logs is worth a tmpfs.
-#   - CTF_CENTRAL_URL is neo's: not a secret, and the student page can change
-#     it before joining. Nothing else in the image differs between students.
+#   - CTF_CENTRAL_URL, the central server a join goes to, is the build arg
+#     CENTRAL_URL: not a secret, and the student page can change it before
+#     joining. Empty (the default) means the image knows no central server:
+#     the student types its address on the page, or plays on the VM alone.
+#     A release gets it from the repository variable CENTRAL_URL
+#     (.github/workflows/release.yml). Nothing else in the image differs
+#     between students.
 #
 # >>> Upgrading Juice Shop is a new FROM tag, the fixtures and the catalogue
 # captured again (internal/juiceshop/testdata/README.md), and tests/e2e.sh.
@@ -49,7 +54,8 @@ COPY --from=build /out/ctf-node /ctf-node
 # The node's directory: 10001 and 0700. A named volume mounted here is
 # initialised from it, ownership and mode included.
 COPY --from=build --chown=10001:10001 --chmod=0700 /out/var/lib/ctf /var/lib/ctf
-ENV CTF_CENTRAL_URL=https://neo.jmnl.nl/juiceshop-ctf
+ARG CENTRAL_URL=
+ENV CTF_CENTRAL_URL=${CENTRAL_URL}
 USER 0:0
 WORKDIR /
 EXPOSE 80

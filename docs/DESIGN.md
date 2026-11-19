@@ -45,8 +45,8 @@ measure helps there, and that is a matter for the course, not this design.
            student's browser                          anyone (beamer, teacher)
                   │ https                                       │ https
                   ▼                                             ▼
- ┌─ cybersecurity-1  (http(s)://<ip>/) ──────────┐   ┌─ neo-jmnl-node ─────────────────┐
- │  web-nginx  (jmnl-network + ctf-juice)        │   │  web-nginx                      │
+ ┌─ a CTF node  (http(s)://<ip>/) ───────────────┐   ┌─ the central server's host ─────┐
+ │  web-nginx  (front network + ctf-juice)       │   │  web-nginx                      │
  │    /ctf/       ──────────► ctf-status ─┐      │   │    /        ─► ctf-central      │
  │    /juiceshop/ ─ auth_request ─┘       │      │   │    /admin/  ─► (IP + htpasswd)  │
  │                └─ gate ok ─► juiceshop:3000   │   │    /api/v1/report  ◄──┐         │
@@ -70,7 +70,7 @@ is used everywhere: in `docker/` on a laptop, on a test VM, and on a node.
 | `/ctf/` | `ctf-status`: sign-up, door, own progress | no |
 | `/juiceshop/` | Juice Shop, including its WebSocket (`/juiceshop/socket.io/`) | **yes** (§5.3) |
 | `/assets/` | Juice Shop: the one absolute path its frontend uses (translations, one image) | **yes** |
-| `/leaderboard/` | `ctf-central`: **only in the `docker/` test setup**, where everything shares one address. In production the central server runs on `neo-jmnl-node` (§13). | no |
+| `/leaderboard/` | `ctf-central`: **only in the `docker/` test setup**, where everything shares one address. In production the central server runs on a host of its own (§13). | no |
 
 All three of our services take a **base path** (`CTF_BASE_PATH`, e.g. `/ctf`)
 and generate every link and form action under it, so they never need nginx to
@@ -117,15 +117,13 @@ Four images, all from this repository except Juice Shop itself:
 | `bkimminich/juice-shop:v20.3.0` | Node.js (upstream) | every CTF node | the target. Pulled, **pinned to an exact version**, never built. |
 | `juiceshop-ctf-agent` | Go | every CTF node | watches Juice Shop, keeps the instance's state, reports to the central server |
 | `juiceshop-ctf-status` | Go | every CTF node | the student's door: sign-up, access gate, own progress |
-| `juiceshop-ctf-central` | Go | `neo-jmnl-node` | receives the reports, keeps the score, serves the leaderboard and the admin pages |
+| `juiceshop-ctf-central` | Go | the central server's host | receives the reports, keeps the score, serves the leaderboard and the admin pages |
 
 **Why Go, for all three.** The agent and the status page are small network
 services that must run unattended for weeks, and a static binary in a `scratch`
 image has nothing in it to patch. Using the same language for the central
 server means the report format lives in **one** package (`internal/protocol`)
-that both ends compile against, so they cannot disagree about it. The
-infrastructure containers in `jmnl-external-servers` (logging,
-firmware-update, zabbix, time-sync) are Go for the same reason. The one
+that both ends compile against, so they cannot disagree about it. The one
 dependency is `modernc.org/sqlite` for the central server: SQLite without cgo,
 so that image can also be `scratch`.
 
@@ -142,14 +140,14 @@ to an instance, and an instance must belong to one student at a time.
 
 An **instance** is the unit everything is built around: one `juiceshop`, one
 `ctf-agent`, one `ctf-status`, one state volume and one identity at the
-central server. Version 1 runs **one instance per node**: `cybersecurity-1`
+central server. Version 1 runs **one instance per node**: `lab-1`
 is one student's. The compose part is written so that a second instance on the
 same node is a copy of the part with a suffix (`juiceshop-2`, `ctf-agent-2`,
 …) and its own vhost. Nothing in the agent or the central server assumes one
 per node. Whether that is worth doing depends on how many students there are
 per VPS; see §13.
 
-The instance identity (`CTF_INSTANCE_ID`, e.g. `cybersecurity-1`) is set by the
+The instance identity (`CTF_INSTANCE_ID`, e.g. `lab-1`) is set by the
 operator, not chosen by the student, and it is what the central server's token
 is issued for.
 
@@ -163,14 +161,14 @@ Juice Shop is **meant** to be broken into, and some of its challenges turn the
 server into the student's tool:
 
 - **SSRF**: the profile-image-by-URL feature makes the *server* fetch any URL
-  the student types. On `jmnl-network` that is a GET from inside the node, to
-  every container on it, including `update-receive-endpoint`, the Zabbix
-  frontend and `logging-dashboard`.
+  the student types. On the node's front network that is a GET from inside
+  the node, to every container on it, including the node's own management
+  services.
 - **Code execution** challenges (template injection, deserialization) run in
   a sandbox inside Juice Shop, not in the container's real shell. They are
   meant to be safe, but this design does not assume they are.
 
-So Juice Shop is **never on `jmnl-network`**. The node gets two extra networks,
+So Juice Shop is **never on the front network**. The node gets two extra networks,
 both `internal: true` (no route out of the node at all):
 
 | Network | Members | Purpose |
@@ -178,7 +176,7 @@ both `internal: true` (no route out of the node at all):
 | `ctf-juice` | `juiceshop`, `web-nginx`, `ctf-agent` | nginx proxies to Juice Shop; the agent polls it; Juice Shop sends its webhook to the agent |
 | `ctf-internal` | `ctf-status`, `ctf-agent` | the status page reads and writes state through the agent's internal API |
 
-`ctf-status` is also on `jmnl-network` (nginx reaches it there), and so is
+`ctf-status` is also on the front network (nginx reaches it there), and so is
 `ctf-agent`, because it needs an outbound route to the central server. (In
 the `docker/` test setup that network is called `ctf-front`.)
 **Juice Shop is on `ctf-juice` only.**
@@ -198,8 +196,8 @@ What an SSRF from Juice Shop can then reach is exactly:
 - **`web-nginx`.** It answers by `Host` header, so the request lands on
   `10-default.conf` or on this instance's own vhost. **>>> No allow-list on
   this node may contain a private or Docker address range**, or an SSRF
-  through nginx gets past it. The `allow` lines in `neo-jmnl-nl.conf` name a
-  single public address, which is correct.
+  through nginx gets past it. An `allow` line names a single public
+  address.
 - **`ctf-agent`'s webhook port.** That port accepts `POST` only, and Juice
   Shop's SSRF is a `GET`. Even a forged `POST` does no harm: the agent treats
   a webhook only as "poll now" and never trusts its body (§6.1).
@@ -272,7 +270,7 @@ secrets (§9), and handed to the student together with the URL. It is checked
 in constant time and rate-limited per client address (5 attempts per minute),
 because it is the only thing between the internet and the shop.
 
-The **cookie** is `jmnl_ctf_gate = <registration_id>.<expiry>.<hmac>`, signed
+The **cookie** is `ctf_gate = <registration_id>.<expiry>.<hmac>`, signed
 with `CTF_GATE_SECRET`, `HttpOnly`, `SameSite=Lax`, `Path=/`, and valid for
 14 days. It is `Secure` unless `CTF_COOKIE_SECURE=false`. **That switch is
 for plain HTTP on an IP address** (§2.1): a browser refuses to store a
@@ -490,7 +488,7 @@ Content-Type: application/json
 ```json
 {
   "protocol": 1,
-  "instance": "cybersecurity-1",
+  "instance": "lab-1",
   "sent_at": "2026-11-18T09:15:00Z",
   "agent_version": "0.1.0",
   "juiceshop": {"version": "20.3.0", "reachable": true, "restore_failed": false},
@@ -599,9 +597,9 @@ gain.
 
 ### 8.4 Admin
 
-The `/admin/` paths have **no login of their own**. Like `/logging/` and
-`/update/` on `neo-jmnl-node`, they sit behind nginx with an IP allow-list
-plus an htpasswd in `/etc/jmnl/nginx/secrets`. A password form the central
+The `/admin/` paths have **no login of their own** (1.1 gave them one,
+internal/central/auth.go). They sit behind nginx with an IP allow-list plus
+an htpasswd. A password form the central
 server wrote itself would be the weakest part of it.
 
 **Reset registration**: the operator ends a participant, and the server queues
@@ -612,9 +610,8 @@ back. The instance's Juice Shop still holds the previous student's solves until
 its container is restarted. Thanks to the baseline (§6.2a) they never count for
 the next student, but that student would find them marked solved. Giving an
 instance to a new student is therefore *reset, then restart Juice Shop*.
-Version 1 accepts that rather than give the agent the Docker socket (see
-`dockers/backup/DESIGN.md` §2 in `jmnl-external-servers` for what that socket
-costs).
+Version 1 accepts that rather than give the agent the Docker socket, which
+is root on the host.
 
 The admin page also shows each instance's last report, versions and the
 `restore_failed` / "Juice Shop down" flags, creates instances (the token is
@@ -630,16 +627,15 @@ them out) but against a page in the operator's own browser.
 > **1.1:** neither program has a secret any more. ctf-central reads only its database path, listen address, base path and log level; ctf-node only the central server's address and timings (their `main.go`).
 
 Nothing secret is in an image, a build arg, git or ignition. On a node, the env
-files live in `/etc/jmnl/juiceshop-ctf/` (mode 0700), arrive through the
-bundle from `nodes/<node>/keys/juiceshop-ctf/`, and are loaded with
-`env_file: required: false`.
+files live in a directory of mode 0700, outside the image and outside git,
+and are loaded with `env_file: required: false`.
 
 **`agent.env`** (only `ctf-agent` reads it)
 
 | Variable | |
 |----------|---|
-| `CTF_INSTANCE_ID` | e.g. `cybersecurity-1` |
-| `CTF_CENTRAL_URL` | e.g. `https://ctf.jmnl.nl` |
+| `CTF_INSTANCE_ID` | e.g. `lab-1` |
+| `CTF_CENTRAL_URL` | e.g. `https://ctf.example.org` |
 | `CTF_CENTRAL_TOKEN` | issued by `/admin/`, shown once |
 | `CTF_INTERNAL_TOKEN` | shared with `ctf-status`, guards the internal API |
 
@@ -673,7 +669,7 @@ defaults, is at the top of each `cmd/*/main.go`; the ones that matter:
 | `CTF_DB_PATH` | central | `/data/central.db` on `ctf-central-db` |
 | `SOLUTIONS_WEBHOOK`, `BASE_PATH` | Juice Shop | `http://ctf-agent-hook:8081/webhook`, `/juiceshop` |
 
-**Central** (`/etc/jmnl/juiceshop-ctf/central.env` on `neo-jmnl-node`): no
+**Central** (`central.env`): no
 secret is needed in version 1. Instance tokens are created in `/admin/` and
 stored as hashes in the database. `CTF_SEED` creates instances with tokens
 from the environment, and exists **for the test setup only**.
@@ -739,10 +735,9 @@ juiceshop-ctf/
   tests/e2e.sh              everything in Docker
 ```
 
-The Dockerfiles live **in the project** (`docker/`), not under
-`jmnl-external-servers/dockers/`. They are production Dockerfiles from the
-start (multi-stage, `scratch`, non-root user, pinned Go version), in the same
-way as drumschool's and intento's.
+The Dockerfiles live **in the project** (`docker/`), not in the repository
+that deploys it. They are production Dockerfiles from the start
+(multi-stage, `scratch`, non-root user, pinned Go version).
 
 ---
 
@@ -795,23 +790,19 @@ Tests:
 
 ---
 
-## 13. Into `jmnl-external-servers`
+## 13. Deployment
 
-> **1.1:** neo runs ctf-central without `CTF_SEED`; `cybersecurity-1` is the VM image with `juiceshop-ctf` and `logging-proxy` (decision D9, deploy/vm/README.md).
+> **1.1:** the central server is the Docker Hub image `macsnoeren/juiceshop-ctf-central`, run without `CTF_SEED`; the students' VM is built by this project (`make vm`, decision D9, deploy/vm/README.md).
 
-The usual checklist from that repository's `CLAUDE.md`, applied to both sides:
+1.0 was deployed as two Docker hosts, each with its own nginx in front:
 
-**New node `nodes/cybersecurity-1/`**: `node.conf` (VPS address, interfaces),
-`compose.yml` with the infrastructure parts (logging, update, time, web,
-backup) and `compose.d/60-juiceshop-ctf.yml`; Juice Shop in
-`DOCKER_PULL_IMAGES`, the agent and status images in `DOCKER_BUILD_IMAGES`;
-the networks from §4; a vhost with the gate (§5.3), in two TLS steps;
-`ctf-agent-state` in the backup; `/etc/jmnl/juiceshop-ctf` in the ignition
-`directories:`; the node added to `NODES` in `flatcar.conf`.
+**The CTF node**: Juice Shop, the agent and the status page; the networks
+from §4; a vhost with the gate (§5.3); `ctf-agent-state` in the backup; the
+env files of §9 in a directory of mode 0700.
 
-**On `neo-jmnl-node`**: `compose.d/NN-juiceshop-ctf-central.yml`, the image,
-monitoring, a vhost with `/admin/` restricted, the certificate,
-`ctf-central-db` in the backup (read-write: SQLite).
+**The central server's host**: ctf-central, its image, monitoring, a vhost
+with `/admin/` restricted, the certificate, `ctf-central-db` in the backup
+(read-write: SQLite).
 
 ### Decided for the test phase (answers to questions 1-3)
 
@@ -822,21 +813,19 @@ The first deployment is a TEST, and three questions were answered for it:
   with `CTF_COOKIE_SECURE=false`, because a browser refuses a Secure cookie
   over HTTP. What that costs (access code, gate cookie and admin password in
   the clear) is written down in the node's vhost.
-- **The instance on a node of its own, `cybersecurity-1`; the central server
-  on `neo-jmnl-node`**, at `https://neo.jmnl.nl/juiceshop-ctf/` (a path on
-  the existing TLS name, so no new certificate). The agent reports there over
-  HTTPS. The CTF node is built with a configuration of its own
-  (`flatcar-deployment/cybersecurity.conf`), so neither node's bundle carries
-  the other's images. Both halves of the instance token are made on the build
-  machine by `nodes/cybersecurity-1/make-keys.sh` — the agent's `agent.env`
-  and neo's `central.env` with `CTF_SEED` — instead of through `/admin/`, so
-  one bundle per node is the whole procedure.
-- **No Zabbix on the CTF node.** Logging, update, time and web only, and no
-  backup part there: the one thing worth keeping, the leaderboard, is on neo,
-  in neo's monitoring and backup.
+- **The instance on a node of its own, `lab-1`; the central server on a
+  host of its own**, under a path of a TLS name that host already has
+  (`/juiceshop-ctf/`, so no new certificate). The agent reports there over
+  HTTPS. Both halves of the instance token are made on the build machine —
+  the agent's `agent.env` and the central server's `central.env` with
+  `CTF_SEED` — instead of through `/admin/`, so one deployment per host is
+  the whole procedure.
+- **No monitoring on the CTF node**, and no backup there: the one thing
+  worth keeping, the leaderboard, is on the central server's host, in its
+  monitoring and backup.
 
-So the plan above changes for now: no TLS steps on the CTF node, no backup
-there, and no entry in `flatcar.conf`'s `NODES`.
+So the plan above changes for now: no TLS steps on the CTF node, and no
+backup there.
 
 ### Still open
 
@@ -849,7 +838,7 @@ there, and no entry in `flatcar.conf`'s `NODES`.
    number needed after all, and then only visible in `/admin/`?
 7. **Juice Shop settings.** Default configuration, or a custom one (hide the
    GitHub links and the "solve it yourself" tutorial, a CTF-style theme)
-   mounted as `config/jmnl.yml` with `NODE_ENV=jmnl`?
+   mounted as `config/ctf.yml` with `NODE_ENV=ctf`?
 8. **After the test:** HTTPS for the CTF node (a DNS name), and more than one
    instance per VPS (about 0.5 GB each).
 
@@ -864,7 +853,7 @@ student has to copy every flag. CTFd needs MariaDB and Redis next to it. And a
 flag is a string that can be passed to a friend, while a solve recorded by the
 agent can only come from the student's own instance.
 
-**OperationRoom (`projects/leaderboard`).** Already on `neo-jmnl-node`, with
+**OperationRoom**, an existing leaderboard application, with
 teams, games and a live board. Rejected as the home for this. Its model is a
 ladder of levels that an operator (or its AI) grades by hand, while this one
 has 100+ independent challenges graded automatically by the target itself.

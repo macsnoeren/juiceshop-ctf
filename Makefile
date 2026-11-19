@@ -7,7 +7,7 @@
 #   make vm       the students' VM for VirtualBox and VMware, in Docker (deploy/vm/build.sh)
 #   make release-check V=v1.1.0   may this version be released? (prints its release notes)
 #
-# VERSION comes from `git describe`, as in jmnl-external-servers, so an image
+# VERSION comes from `git describe`, so an image
 # built from a commit after the tag v1.0.0 calls itself v1.0.0-<n>-g<hash>
 # (and -dirty with uncommitted changes). The binaries print it with -version
 # and in their first log line; ctf-node sends it in every report, so admin

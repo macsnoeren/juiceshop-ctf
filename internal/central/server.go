@@ -2,8 +2,8 @@
 // their VMs' reports, and serves the boards and the operator's admin
 // (docs/VERSION-1-1.md §2, §5, §6).
 //
-// Everything is under BasePath ("" on its own hostname, /juiceshop-ctf on
-// neo):
+// Everything is under BasePath ("" on its own hostname, e.g. /juiceshop-ctf
+// on a path of a shared one):
 //
 //	POST <base>/api/v2/join            a student joins: name + join code → token
 //	POST <base>/api/v2/report          a VM's snapshot (Bearer token)
@@ -16,8 +16,8 @@
 //
 // /admin/ needs an admin account (auth.go). While the database has none,
 // <base>/admin/setup makes the first one for whoever gets there first: open
-// it yourself before you publish a fresh server, or keep nginx's allow-list
-// in front of /admin/ as on neo.
+// it yourself before you publish a fresh server, or keep an allow-list in
+// the reverse proxy in front of /admin/.
 package central
 
 import (

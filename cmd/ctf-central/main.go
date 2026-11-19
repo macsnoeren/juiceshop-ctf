@@ -13,7 +13,7 @@
 //
 //	CTF_DB_PATH      default /data/central.db (on the ctf-central-db volume)
 //	CTF_ADDR         default :8080
-//	CTF_BASE_PATH    the path it is served under: default ""; /juiceshop-ctf on neo
+//	CTF_BASE_PATH    the path it is served under: default "", e.g. /juiceshop-ctf behind a proxy
 //	LOG_LEVEL        debug | info | warn | error
 //
 // 1.0's CTF_SEED, CTF_TITLE and CTF_TIMEZONE are gone; a CTF_SEED still in an
@@ -22,7 +22,7 @@
 // /admin/ has accounts of its own (internal/central/auth.go). >>> A FRESH
 // DATABASE HAS NONE, and then <base>/admin/setup makes the first account
 // for whoever opens it first: open it yourself right after starting a new
-// server, or keep it behind an allow-list as neo's nginx does.
+// server, or keep it behind an allow-list in the reverse proxy.
 package main
 
 import (

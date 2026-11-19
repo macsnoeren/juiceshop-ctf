@@ -8,7 +8,7 @@ VirtualBox lab with Kali on a host-only network.
 
 ```
  the student's laptop (VirtualBox or VMware)
- Kali ── host-only ──► CTF VM: Alpine Linux, Docker, juiceshop-ctf on :80 ── NAT ──► central server
+ Kali ── host-only ──► CTF VM: Alpine Linux, Docker, juiceshop-ctf on :80 ── NAT ──► central server (CENTRAL_URL)
                         /ctf/        the student's page: join, progress, Restart, Forget
                         /juiceshop/  their own Juice Shop
 ```
@@ -30,6 +30,13 @@ root locked) and nothing of any student in it. It has never joined a game:
 the `juiceshop-ctf` container and its `node.db` are made at the first boot
 on the student's machine.
 
+Its central server is the build's `CENTRAL_URL` (the build arg of
+`deploy/docker/Dockerfile.node`; in a release the repository variable
+`CENTRAL_URL`). Without it the VM knows none, and its CTF page asks
+*Which central server?* before the join form (or *Play on this VM only*).
+Either way the student can change it under *Central server* until they
+join.
+
 | Adapter | Attached to | Inside the VM | Why |
 |---------|-------------|---------------|-----|
 | 1 | NAT | `eth0`, DHCP | the way out, to the central server |
@@ -45,6 +52,7 @@ hour or more.
 
 ```sh
 make vm                                # = deploy/vm/build.sh
+CENTRAL_URL=https://ctf.example.org make vm   # the central server a join goes to (default: none)
 VERSION=v1.1.0 make vm                 # the version in the file names and on the console (default: git describe)
 ALPINE_VERSION=3.24.5 make vm          # another Alpine release
 VM_SKIP_TEST=1 make vm                 # without the boot test

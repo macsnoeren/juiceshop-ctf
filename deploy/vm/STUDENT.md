@@ -37,7 +37,9 @@ it. Port 80 is the one that answers.
 
 **5. Join.** In Kali's browser open `http://<address of the CTF VM>/ctf/`.
 Type your name (it is shown on the leaderboard) and the **join code** your
-teacher shows. Then *Open the Juice Shop* — `http://<address>/juiceshop/`.
+teacher shows. Does the page ask **Which central server?** first? Then
+type the address your teacher gives you and press *Use this server*. Then *Open the Juice Shop* —
+`http://<address>/juiceshop/`.
 
 **6. Hack.** Browser, Burp, curl, sqlmap: everything works without a cookie
 or a password. Your CTF page shows your points, your rank and a link to the
