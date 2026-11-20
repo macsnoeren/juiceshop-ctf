@@ -48,7 +48,7 @@
 # >>> Upgrading Juice Shop is a new FROM tag, the fixtures and the catalogue
 # captured again (internal/juiceshop/testdata/README.md), and scripts/e2e.sh.
 
-FROM golang:1.26.10-alpine3.24@sha256:87c65a688975c0b1d4585d204874c45ca78354670e3a5f11368c5a492303d696 AS build
+FROM golang:1.27.4-alpine3.24@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
