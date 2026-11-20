@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"html/template"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,9 +20,10 @@ import (
 	"github.com/macsnoeren/juiceshop-ctf/web/static"
 )
 
-// The web server of the VM: the student's page,
-// and the shop behind it.
+// The web servers of the VM: the student's page, and the shop. They are
+// TWO ORIGINS, on two ports:
 //
+//	the page, :8080 (Page)
 //	GET  /                 → /ctf/
 //	GET  /ctf/             join, progress, rank, the buttons, the central server
 //	POST /ctf/join         name + join code
@@ -28,23 +31,38 @@ import (
 //	POST /ctf/forget       Forget (type "forget")
 //	POST /ctf/central      another central server, the default, or none (not while joined)
 //	POST /ctf/enter        the optional gate: name + return code
-//	     /juiceshop/, /assets/   the shop (proxy.go)
 //	GET  /ctf/healthz      204
+//	GET  /juiceshop/…      → the same on the shop's port
+//
+//	the shop, :80 (Shop)
+//	     /juiceshop/, /assets/   Juice Shop (proxy.go)
+//	GET  anything else     → the page's port
+//
+// >>> WHY TWO ORIGINS: Juice Shop has XSS on purpose, and script that runs in
+// the shop runs with the shop's origin. On ONE origin it could read the CTF
+// page, take its form token and press Forget: off the board, the VM wiped,
+// from one link a classmate sends. On another port it cannot read the page.
+// It can still SET a cookie the page receives (cookies ignore ports), which
+// is why the form token is an HMAC (httpx.CSRF) and not a cookie repeated.
 //
 // NO GATE by default: in the lab only the student's own Kali reaches this VM
 // (the host-only network), so nothing here depends on a cookie, and wiping
 // every cookie — which Juice Shop's challenges make students do — changes
-// nothing. Every POST carries a CSRF token (a double-submit cookie: when the
-// cookie is gone, the next page view sets a new one).
+// nothing. Every POST carries a form token, and is refused when the browser
+// says it came from another origin (Sec-Fetch-Site, Origin).
 
 const (
-	csrfCookie    = "ctf_node_csrf"
 	sessionCookie = "ctf_node_session"
 	sessionLife   = 14 * 24 * time.Hour
 	// GateTries wrong return codes per GateWindow, for the one student of
 	// this VM.
 	GateTries  = 5
 	GateWindow = 5 * time.Minute
+	// csrfLife is how long a form on the page stays valid.
+	csrfLife = 24 * time.Hour
+	// csrfBinding: the page has no session to bind a token to; the key,
+	// which only this process knows, is what makes a token.
+	csrfBinding = "ctf-node page"
 )
 
 // PageConfig is what the page needs besides the node.
@@ -52,6 +70,10 @@ type PageConfig struct {
 	Location *time.Location
 	// JuiceShop is the reverse proxy; tests pass a fake.
 	JuiceShop http.Handler
+	// ShopPort and PagePort are the ports a BROWSER uses for the shop and
+	// the page (80 and 8080), for the links between the two. They differ
+	// from the ports listened on only behind a port mapping.
+	ShopPort, PagePort int
 }
 
 // Server is the VM's web server.
@@ -59,12 +81,19 @@ type Server struct {
 	n     *Node
 	cfg   PageConfig
 	pages *template.Template
+	csrf  *httpx.CSRF
 }
 
 // NewServer returns the web server of node n.
 func NewServer(n *Node, cfg PageConfig) (*Server, error) {
 	if cfg.Location == nil {
 		cfg.Location = time.UTC
+	}
+	if cfg.ShopPort == 0 {
+		cfg.ShopPort = 80
+	}
+	if cfg.PagePort == 0 {
+		cfg.PagePort = 8080
 	}
 	funcs := template.FuncMap{
 		"hm": func(t time.Time) string { return t.In(cfg.Location).Format("15:04") },
@@ -87,15 +116,40 @@ func NewServer(n *Node, cfg PageConfig) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{n: n, cfg: cfg, pages: t}, nil
+	return &Server{n: n, cfg: cfg, pages: t, csrf: httpx.NewCSRF(csrfLife)}, nil
 }
 
-// Handler returns every route of port 80.
-func (s *Server) Handler() http.Handler {
+// hostOf is the host the browser used, without its port.
+func hostOf(r *http.Request) string {
+	if h, _, err := net.SplitHostPort(r.Host); err == nil {
+		return h
+	}
+	return strings.Trim(r.Host, "[]")
+}
+
+// origin is http://<the host the browser used>:<port>, without :80.
+func origin(r *http.Request, port int) string {
+	h := hostOf(r)
+	if port == 80 {
+		if strings.Contains(h, ":") {
+			return "http://[" + h + "]"
+		}
+		return "http://" + h
+	}
+	return "http://" + net.JoinHostPort(h, strconv.Itoa(port))
+}
+
+func (s *Server) shopURL(r *http.Request) string { return origin(r, s.cfg.ShopPort) + "/juiceshop/" }
+func (s *Server) pageURL(r *http.Request) string { return origin(r, s.cfg.PagePort) + "/ctf/" }
+
+// Page returns every route of the page's port.
+func (s *Server) Page() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/ctf/", http.StatusFound) })
 	mux.HandleFunc("GET /ctf", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/ctf/", http.StatusFound) })
-	mux.HandleFunc("GET /juiceshop", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/juiceshop/", http.StatusFound) })
+	mux.HandleFunc("GET /juiceshop/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, origin(r, s.cfg.ShopPort)+r.URL.RequestURI(), http.StatusFound)
+	})
 	mux.Handle("GET /ctf/static/", http.StripPrefix("/ctf/static/", http.FileServerFS(static.FS)))
 	mux.HandleFunc("GET /ctf/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("GET /ctf/{$}", func(w http.ResponseWriter, r *http.Request) { s.page(w, r, http.StatusOK, flash{}) })
@@ -104,17 +158,26 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /ctf/forget", s.form(s.handleForget))
 	mux.HandleFunc("POST /ctf/central", s.form(s.handleCentral))
 	mux.HandleFunc("POST /ctf/enter", s.form(s.handleEnter))
-	pages := httpx.SecurityHeaders(mux)
+	return httpx.SecurityHeaders(mux)
+}
 
+// Shop returns every route of the shop's port: Juice Shop, and a way to
+// the page for everything else. NOTHING of the page is served here.
+func (s *Server) Shop() http.Handler {
 	shop := s.gated(s.cfg.JuiceShop)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Juice Shop sets its own headers; the CSP of the CTF pages would
-		// break it, so the shop paths bypass SecurityHeaders.
-		if strings.HasPrefix(r.URL.Path, "/juiceshop/") || strings.HasPrefix(r.URL.Path, "/assets/") {
+		// break it, so the shop gets none of SecurityHeaders.
+		switch p := r.URL.Path; {
+		case strings.HasPrefix(p, "/juiceshop/") || strings.HasPrefix(p, "/assets/"):
 			shop.ServeHTTP(w, r)
-			return
+		case r.Method != http.MethodGet && r.Method != http.MethodHead:
+			http.NotFound(w, r)
+		case p == "/juiceshop":
+			http.Redirect(w, r, "/juiceshop/", http.StatusFound)
+		default: // /, /ctf/…: the page lives on its own port now
+			http.Redirect(w, r, s.pageURL(r), http.StatusFound)
 		}
-		pages.ServeHTTP(w, r)
 	})
 }
 
@@ -125,7 +188,7 @@ func (s *Server) gated(h http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.hasSession(r) {
-			http.Redirect(w, r, "/ctf/", http.StatusFound)
+			http.Redirect(w, r, s.pageURL(r), http.StatusFound)
 			return
 		}
 		h.ServeHTTP(w, r)
@@ -159,29 +222,24 @@ type pageData struct {
 	View
 	Flash      flash
 	CSRF       string
-	Host       string
+	ShopURL    string // http://<this VM>/juiceshop/, as the browser reaches it
 	NeedsEntry bool
 	JoinCode   bool
-}
-
-func (s *Server) csrfToken(w http.ResponseWriter, r *http.Request) string {
-	if c, err := r.Cookie(csrfCookie); err == nil && len(c.Value) == 32 {
-		return c.Value
-	}
-	v := httpx.RandomHex(16)
-	http.SetCookie(w, &http.Cookie{Name: csrfCookie, Value: v, Path: "/ctf/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
-	return v
+	// Plain is set when the central server is reached over plain HTTP on
+	// a network others share: the page says what that means.
+	Plain bool
 }
 
 func (s *Server) page(w http.ResponseWriter, r *http.Request, status int, f flash) {
 	v := s.n.View()
-	d := pageData{View: v, Flash: f, CSRF: s.csrfToken(w, r), Host: r.Host}
+	d := pageData{View: v, Flash: f, CSRF: s.csrf.Token(csrfBinding, s.n.now()), ShopURL: s.shopURL(r)}
 	d.NeedsEntry = v.Gate && v.Membership != nil && !s.hasSession(r) && f.ReturnCode == ""
 	central := v.CentralURL
 	if v.Membership != nil {
 		central = v.Membership.CentralURL
 	}
 	d.JoinCode = central != ""
+	d.Plain = PlainOnSharedNetwork(central)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
@@ -190,7 +248,8 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request, status int, f flas
 	}
 }
 
-// form parses a POST and checks its CSRF token.
+// form parses a POST, refuses it when it came from another origin (the
+// shop's included), and checks its form token.
 func (s *Server) form(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
@@ -198,13 +257,26 @@ func (s *Server) form(h http.HandlerFunc) http.HandlerFunc {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		c, err := r.Cookie(csrfCookie)
-		if err != nil || !httpx.EqualSecret(c.Value, r.PostFormValue("csrf")) {
+		if crossOrigin(r) {
+			s.page(w, r, http.StatusForbidden, flash{Error: "This form was sent from another page than this one; nothing was done."})
+			return
+		}
+		if !s.csrf.Valid(r.PostFormValue("csrf"), csrfBinding, s.n.now()) {
 			s.page(w, r, http.StatusForbidden, flash{Error: "This form had expired. Please try again."})
 			return
 		}
 		h(w, r)
 	}
+}
+
+// crossOrigin: Sec-Fetch-Site, and, for a browser without it, Origin. The
+// page has no proxy in front, so Origin must name exactly the Host asked for.
+func crossOrigin(r *http.Request) bool {
+	if httpx.CrossOrigin(r) {
+		return true
+	}
+	o := r.Header.Get("Origin")
+	return o != "" && o != "http://"+r.Host && o != "https://"+r.Host
 }
 
 func (s *Server) back(w http.ResponseWriter, r *http.Request) {

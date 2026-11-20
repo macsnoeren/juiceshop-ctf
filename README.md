@@ -19,9 +19,10 @@ This solution removes the need for a Kubernetes cluster. You only need to host t
  the participant's cyber security lab on their laptop (VirtualBox)
                                                                 
  Kali Linux   ──► host-only ──► CTF VM: juiceshop-ctf ── NAT ─────►  ctf-central
- browser,         network       /ctf/  ctf-node: join, progress,     games and join codes,
- Burp Suite                                      restart, forget     boards per game, beamer,
-                                /juiceshop/  Juice Shop v20.3.0      admin and the event feed 
+ browser,         network       :8080/ctf/  ctf-node: join,          games and join codes,
+ Burp Suite                                 progress, restart,       boards per game, beamer,
+                                            forget                   admin and the event feed
+                                :80/juiceshop/  Juice Shop v20.3.0
 ```
 
 The operator makes a **game** on the central CTF server's /admin page and shows its **join code**; a participant types their name and that code on their VM's page, and the VM gets a token for that participant. The VM image is the same for everybody and holds no secret.
@@ -31,6 +32,7 @@ The operator makes a **game** on the central CTF server's /admin page and shows 
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | running a lab: games, the board, cleaning up, the VM |
 | [docs/STUDENT.md](docs/STUDENT.md) | the students' sheet |
 | [docs/PROTOCOL.md](docs/PROTOCOL.md) | join, report and leave between VM and central server |
+| [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) | the threat model: what is attacked, how it is defended, what is left to the operator |
 | [docs/DEVELOPER.md](docs/DEVELOPER.md) | for developers: how the code fits together, where things are, how to make and test a change |
 | [CHANGELOG.md](CHANGELOG.md) | the change log of the application |
 
@@ -44,8 +46,8 @@ make stop     # deploy/compose/stop.sh --wipe forgets everything
 ```
 
 Then open `http://127.0.0.1:8090/juiceshop-ctf/admin/`: the first time it
-asks you to make an admin account. Make a game there, join it
-from `http://127.0.0.1:8091/ctf/`, solve
+asks you to make an admin account, with the setup code `make run` printed.
+Make a game there, join it from `http://127.0.0.1:8191/ctf/`, solve
 `http://127.0.0.1:8091/juiceshop/ftp/acquisitions.md` and watch the board.
 
 ## On a server
@@ -58,9 +60,11 @@ docker run -d --name ctf-central -p 8080:8080 -v ctf-central-db:/data \
   macsnoeren/juiceshop-ctf-central:latest
 ```
 
-Open `/admin/` yourself right after it starts: the first visitor makes the
-first admin account. Behind a reverse proxy, an IP allow-list in front of
-`/admin/` is a good second lock.
+Open `/admin/` and make the first admin account with the **setup code** in
+its log (`docker logs ctf-central | grep setup_code`). Behind a reverse
+proxy, an IP allow-list in front of `/admin/` is a good second lock.
+[docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) says what the CTF protects
+against, and what an operator must do for it.
 
 The students' VM is built here, for VirtualBox and VMware, with nothing but
 Docker ([deploy/vm/README.md](deploy/vm/README.md)), and points at your
@@ -76,13 +80,14 @@ A release takes that address from the repository variable `CENTRAL_URL`
 The image runs anywhere Docker does:
 
 ```sh
-docker run -d -p 80:80 -v juiceshop-ctf:/var/lib/ctf \
+docker run -d -p 80:80 -p 8080:8080 -v juiceshop-ctf:/var/lib/ctf \
   --cap-drop ALL --cap-add SETUID --cap-add SETGID --security-opt no-new-privileges \
   juiceshop-ctf
 ```
 
-Without `CTF_CENTRAL_URL` (or with *No central server* on its page) it runs
-on its own and shows the local score.
+The shop is on port 80, the student's page on port 8080. Without
+`CTF_CENTRAL_URL` (or with *No central server* on its page) it runs on its
+own and shows the local score.
 
 ## Development
 

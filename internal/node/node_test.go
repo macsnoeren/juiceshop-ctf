@@ -592,3 +592,129 @@ func TestGate(t *testing.T) {
 		t.Error("something of the gate is active without CTF_GATE")
 	}
 }
+
+// ---- the page and the shop are two origins ----
+
+func TestThePageIsNotServedOnTheShopsPort(t *testing.T) {
+	h := newHarness(t, Config{})
+	shop, page := h.srv.Shop(), h.srv.Page()
+	do := func(hd http.Handler, method, target string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, target, nil)
+		w := httptest.NewRecorder()
+		hd.ServeHTTP(w, r)
+		return w
+	}
+	// On the shop's port, the page is only ever a redirect to its own port.
+	for _, p := range []string{"/", "/ctf/", "/ctf/static/style.css"} {
+		if w := do(shop, "GET", "http://192.168.56.101"+p); w.Code != 302 || w.Header().Get("Location") != "http://192.168.56.101:8080/ctf/" {
+			t.Errorf("GET %s on the shop's port: %d %q", p, w.Code, w.Header().Get("Location"))
+		}
+	}
+	for _, p := range []string{"/ctf/forget", "/ctf/join", "/ctf/central"} {
+		if w := do(shop, "POST", "http://192.168.56.101"+p); w.Code != 404 {
+			t.Errorf("POST %s on the shop's port: %d", p, w.Code)
+		}
+	}
+	if w := do(shop, "GET", "http://192.168.56.101/juiceshop/rest/products"); w.Body.String() != "juice shop: /juiceshop/rest/products" {
+		t.Errorf("the shop: %q", w.Body.String())
+	}
+	// The page sends the shop to the shop's port, and links there.
+	if w := do(page, "GET", "http://192.168.56.101:8080/juiceshop/"); w.Code != 302 || w.Header().Get("Location") != "http://192.168.56.101/juiceshop/" {
+		t.Errorf("the shop on the page's port: %d %q", w.Code, w.Header().Get("Location"))
+	}
+	if b := do(page, "GET", "http://192.168.56.101:8080/ctf/").Body.String(); !strings.Contains(b, `href="http://192.168.56.101/juiceshop/"`) {
+		t.Error("the page does not link to the shop on its own port")
+	}
+}
+
+// ---- a form from another origin does nothing ----
+
+func TestFormsFromAnotherOriginAreRefused(t *testing.T) {
+	c := newCentral(t)
+	_, code := c.game(t, "Sabotage")
+	h := newHarness(t, Config{DefaultCentralURL: c.URL})
+	h.poll()
+	h.join("Anna", code)
+	m := csrfRE.FindStringSubmatch(h.req("GET", "/ctf/", nil).Body.String())
+	post := func(hdr ...string) int {
+		f := url.Values{"csrf": {m[1]}, "confirm": {"forget"}}
+		r := httptest.NewRequest("POST", "http://vm:8080/ctf/forget", strings.NewReader(f.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		for i := 0; i+1 < len(hdr); i += 2 {
+			r.Header.Set(hdr[i], hdr[i+1])
+		}
+		w := httptest.NewRecorder()
+		h.h.ServeHTTP(w, r)
+		return w.Code
+	}
+	// Script in the shop (port 80) posting to the page (port 8080): the
+	// browser says same-site, or at least sends the shop's Origin.
+	if code := post("Sec-Fetch-Site", "same-site", "Origin", "http://vm"); code != 403 || h.n.st.Membership == nil {
+		t.Errorf("Forget from the shop's origin: %d", code)
+	}
+	if code := post("Origin", "http://vm"); code != 403 || h.n.st.Membership == nil {
+		t.Errorf("Forget with the shop's Origin, no Sec-Fetch-Site: %d", code)
+	}
+	// A token nobody made is refused, whatever cookie comes with it: a
+	// cookie is no part of the token any more.
+	f := url.Values{"csrf": {strings.Repeat("0", 80)}, "confirm": {"forget"}}
+	r := httptest.NewRequest("POST", "http://vm:8080/ctf/forget", strings.NewReader(f.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.AddCookie(&http.Cookie{Name: "ctf_node_csrf", Value: strings.Repeat("0", 80)})
+	w := httptest.NewRecorder()
+	h.h.ServeHTTP(w, r)
+	if w.Code != 403 || h.n.st.Membership == nil {
+		t.Errorf("a made-up token: %d", w.Code)
+	}
+	// The page's own form goes through.
+	if code := post("Sec-Fetch-Site", "same-origin", "Origin", "http://vm:8080"); code != 200 || h.n.st.Membership != nil {
+		t.Errorf("Forget from the page itself: %d", code)
+	}
+}
+
+// ---- plain HTTP only to a central server that is not on the internet ----
+
+func TestCentralURLOverPlainHTTP(t *testing.T) {
+	for raw, ok := range map[string]bool{
+		"https://ctf.example.org":             true,
+		"https://203.0.113.7/juiceshop-ctf":   true,
+		"http://ctf.example.org":              false,
+		"http://203.0.113.7:8080":             false,
+		"http://localhost:8080":               true,
+		"http://127.0.0.1:8080/juiceshop-ctf": true,
+		"http://192.168.1.20":                 true,
+		"http://[fd00::1]:8080":               true,
+		"http://ctf-central:8080":             true,
+		"ftp://ctf.example.org":               false,
+	} {
+		if _, err := ValidateCentralURL(raw); (err == nil) != ok {
+			t.Errorf("%s: %v", raw, err)
+		}
+	}
+	for raw, warn := range map[string]bool{
+		"https://ctf.example.org": false, "http://localhost:8080": false, "http://127.0.0.1": false,
+		"http://192.168.1.20": true, "http://ctf-central:8080": true,
+	} {
+		if PlainOnSharedNetwork(raw) != warn {
+			t.Errorf("warning for %s: %v", raw, !warn)
+		}
+	}
+}
+
+// ---- a cheat score of 0 posted first does not hide a real one ----
+
+func TestWebhookKeepsTheHighestCheatScore(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.join("Sanne", "")
+	srv := httptest.NewServer(h.n.WebhookHandler())
+	defer srv.Close()
+	for _, c := range []string{"0", "0.8", "0.2"} {
+		http.Post(srv.URL+"/webhook", "application/json", strings.NewReader(`{"solution":{"challenge":"loginAdminChallenge","cheatScore":`+c+`}}`))
+	}
+	h.n.mu.Lock()
+	got := h.n.st.Cheat["loginAdminChallenge"]
+	h.n.mu.Unlock()
+	if got != 0.8 {
+		t.Errorf("cheat score %v after 0, 0.8, 0.2; want 0.8", got)
+	}
+}

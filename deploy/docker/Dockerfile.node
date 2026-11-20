@@ -10,19 +10,24 @@
 #
 # Run it anywhere — a laptop, a VM, a Flatcar node:
 #
-#   docker run -d --name juiceshop-ctf -p 80:80 -v juiceshop-ctf:/var/lib/ctf \
+#   docker run -d --name juiceshop-ctf -p 80:80 -p 8080:8080 -v juiceshop-ctf:/var/lib/ctf \
 #     --cap-drop ALL --cap-add SETUID --cap-add SETGID --security-opt no-new-privileges \
 #     juiceshop-ctf
 #
 #   ctf-node (the keeper)   uid 0, PID 1, SETUID+SETGID only: starts the two below, nothing else
 #    ├─ node build/app.js   uid 65532 (Juice Shop's own user), no capabilities
-#    └─ ctf-node -serve     uid 10001, no capabilities: :80, /var/lib/ctf/node.db (0700)
+#    └─ ctf-node -serve     uid 10001, no capabilities: :80 the shop, :8080 the page,
+#                           /var/lib/ctf/node.db (0700)
 #
 # WHAT IS UNUSUAL HERE:
 #
 #   - The image runs as ROOT on purpose: the keeper must start Juice Shop
 #     and ctf-node as their own users. It holds only SETUID and SETGID, reads
 #     no network input, and ctf-node refuses to start if it has any privilege.
+#   - TWO PORTS: the shop on 80, the student's page on 8080. Two origins, so
+#     script in Juice Shop (which has XSS on purpose) cannot read the page
+#     or press its buttons. Behind a port mapping, CTF_SHOP_PORT and
+#     CTF_PAGE_PORT say which ports the browser uses, for the links.
 #   - CMD is reset: the base image's CMD is Juice Shop's script, which would
 #     otherwise be passed to ctf-node as an argument.
 #   - The root filesystem cannot be read-only: Juice Shop rewrites its own
@@ -39,7 +44,7 @@
 # >>> Upgrading Juice Shop is a new FROM tag, the fixtures and the catalogue
 # captured again (internal/juiceshop/testdata/README.md), and scripts/e2e.sh.
 
-FROM golang:1.26.10-alpine3.24 AS build
+FROM golang:1.26.10-alpine3.24@sha256:87c65a688975c0b1d4585d204874c45ca78354670e3a5f11368c5a492303d696 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -52,7 +57,7 @@ RUN CGO_ENABLED=0 go build -trimpath \
       -o /out/ctf-node ./cmd/ctf-node \
  && mkdir -p /out/var/lib/ctf
 
-FROM bkimminich/juice-shop:v20.3.0
+FROM bkimminich/juice-shop:v20.3.0@sha256:cea5a4af4aacee498c491491af0408934ec81d004035c0a02ef3e54395e3bf27
 # ctf-node is GPL-3.0-or-later; Juice Shop, the base image, keeps its MIT
 # licence. The licence text travels with the binary, as the GPL asks.
 LABEL org.opencontainers.image.licenses="GPL-3.0-or-later AND MIT" \
@@ -66,7 +71,7 @@ ARG CENTRAL_URL=
 ENV CTF_CENTRAL_URL=${CENTRAL_URL}
 USER 0:0
 WORKDIR /
-EXPOSE 80
+EXPOSE 80 8080
 VOLUME /var/lib/ctf
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --start-interval=2s --retries=3 CMD ["/ctf-node", "-healthcheck"]
 ENTRYPOINT ["/ctf-node"]

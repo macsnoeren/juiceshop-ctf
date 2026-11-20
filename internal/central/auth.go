@@ -33,11 +33,11 @@ import (
 //	POST     <base>/admin/account/password    your own: the current one, then the new one
 //	POST     <base>/admin/account/sessions    log out everywhere else
 //
-// THE SETUP PAGE is open to whoever reaches it first while the database has
-// no account. That is the moment between installing and opening admin, and
-// an allow-list in the reverse proxy can keep it to the operator. Do not
-// publish a fresh central server without either that, or opening /admin/
-// yourself first.
+// THE SETUP PAGE exists only while the database has no account, and asks
+// for a one-time SETUP CODE that the server prints to its log when it starts
+// without one (`docker logs`). Without the code, a scanner that finds a fresh
+// server first would become its admin. A new start makes a new code; wrong
+// codes count against the login limit of the address.
 //
 // A session is a random cookie (32 bytes) stored as its SHA-256. "Keep me
 // logged in" makes a cookie that outlives the browser and a session that
@@ -46,6 +46,12 @@ import (
 // HttpOnly, SameSite=Lax, Secure behind HTTPS, and scoped to <base>/admin/,
 // so the public boards never see it. Every form still carries the CSRF
 // token of admin.go: the cookie alone authorises no POST.
+//
+// THE LOGIN LIMITS are taken BEFORE the password is hashed (window.Take), and
+// at most HashesAtOnce hashes run at the same time. Counting a failure only
+// after the hash would let parallel requests all pass the check; and a hash
+// for an unknown username costs as much as for a real one, on purpose, so
+// without the bound anybody could keep the CPU busy.
 
 const (
 	sessionCookie = "ctf_session"
@@ -87,17 +93,54 @@ func currentSession(r *http.Request) *store.Session {
 	return nil
 }
 
-func secure(r *http.Request) bool {
-	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+// errBusy is the answer when HashesAtOnce hashes are already running.
+var errBusy = errors.New("the server is busy; try again in a moment")
+
+// hash runs f, a password hash, when one of the HashesAtOnce slots is free
+// within hashWait, and returns errBusy otherwise.
+func (s *Server) hash(f func()) error {
+	t := time.NewTimer(s.hashWait)
+	defer t.Stop()
+	select {
+	case s.hashing <- struct{}{}:
+	case <-t.C:
+		return errBusy
+	}
+	defer func() { <-s.hashing }()
+	f()
+	return nil
+}
+
+// newSetupCode makes a setup code and logs it, when there is no account.
+func (s *Server) newSetupCode() error {
+	n, err := s.st.UserCount()
+	if err != nil || n > 0 {
+		return err
+	}
+	code := protocol.NewJoinCode()
+	s.setupMu.Lock()
+	s.setupCode = code
+	s.setupMu.Unlock()
+	// >>> The one secret this server ever logs, on purpose: whoever can read
+	// the log runs the server already, and it is the operator's way in.
+	s.log.Warn("no admin account yet: open <base>/admin/setup and give this setup code", "path", s.adminPath("/setup"), "setup_code", protocol.FormatCode(code))
+	return nil
+}
+
+// SetupCode is the current setup code, "" once there is an account; for tests.
+func (s *Server) SetupCode() string {
+	s.setupMu.Lock()
+	defer s.setupMu.Unlock()
+	return s.setupCode
 }
 
 func (s *Server) adminPath(p string) string { return s.cfg.BasePath + "/admin" + p }
 
 func (s *Server) authRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+s.adminPath("/setup"), s.handleSetupPage)
-	mux.HandleFunc("POST "+s.adminPath("/setup"), s.csrf(s.handleSetup))
+	mux.HandleFunc("POST "+s.adminPath("/setup"), s.csrfCheck(s.handleSetup))
 	mux.HandleFunc("GET "+s.adminPath("/login"), s.handleLoginPage)
-	mux.HandleFunc("POST "+s.adminPath("/login"), s.csrf(s.handleLogin))
+	mux.HandleFunc("POST "+s.adminPath("/login"), s.csrfCheck(s.handleLogin))
 	mux.HandleFunc("POST "+s.adminPath("/logout"), s.action(s.handleLogout))
 	mux.HandleFunc("GET "+s.adminPath("/users"), s.requireUser(func(w http.ResponseWriter, r *http.Request) {
 		s.usersPage(w, r, http.StatusOK, flash{})
@@ -108,7 +151,7 @@ func (s *Server) authRoutes(mux *http.ServeMux) {
 }
 
 // action is a POST in admin: the CSRF token, then a logged-in user.
-func (s *Server) action(h http.HandlerFunc) http.HandlerFunc { return s.csrf(s.requireUser(h)) }
+func (s *Server) action(h http.HandlerFunc) http.HandlerFunc { return s.csrfCheck(s.requireUser(h)) }
 
 // requireUser lets a request through with a live session, and otherwise
 // sends the browser to the setup page (no account yet) or the login page,
@@ -170,7 +213,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) (*store.Session
 // setSessionCookie sets the cookie; a zero expiry makes it end with the browser.
 func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expires time.Time) {
 	c := &http.Cookie{Name: sessionCookie, Value: token, Path: s.adminPath("/"),
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure(r)}
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.secure(r)}
 	if !expires.IsZero() {
 		c.Expires = expires
 		c.MaxAge = int(expires.Sub(s.now()).Seconds())
@@ -187,7 +230,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, u *store.User, re
 		life = SessionRemember
 	}
 	err := s.st.CreateSession(store.Session{TokenHash: protocol.Hash(token), UserID: u.ID, CreatedAt: now, LastSeenAt: now,
-		ExpiresAt: now.Add(life), Remember: remember, Address: httpx.ClientIP(r), UserAgent: r.UserAgent()})
+		ExpiresAt: now.Add(life), Remember: remember, Address: s.clientIP(r), UserAgent: ua(r)})
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -211,7 +254,17 @@ func (s *Server) safeNext(next string) string {
 }
 
 func (s *Server) authEvent(r *http.Request, actor, text string) {
-	s.event(store.Event{Kind: store.EvAuth, Actor: actor, Address: httpx.ClientIP(r), Text: text})
+	s.event(store.Event{Kind: store.EvAuth, Actor: actor, Address: s.clientIP(r), Text: text})
+}
+
+// ua is the User-Agent as stored with a session: what admin shows of where
+// a session was made, cut short so a client cannot store kilobytes.
+func ua(r *http.Request) string {
+	v := r.UserAgent()
+	if len(v) > 200 {
+		v = v[:200]
+	}
+	return v
 }
 
 // ---- setup -------------------------------------------------------------------
@@ -247,10 +300,33 @@ func (s *Server) handleSetupPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
+	now := s.now()
 	name, pw := strings.TrimSpace(r.PostFormValue("username")), r.PostFormValue("password")
 	again := func(msg string) {
 		s.render(w, http.StatusBadRequest, "setup", authPageData{pageBase: s.abase(w, r, nil), Error: msg, Username: name, Remember: true})
 	}
+	if none, ok := s.noUsers(w); !ok {
+		return
+	} else if !none {
+		// Someone else finished the setup first: their account stands.
+		http.Redirect(w, r, s.adminPath("/login"), http.StatusSeeOther)
+		return
+	}
+	// The setup code first, with the login limit of this address: a guesser
+	// gets LoginFailsPerAddress tries per window, as on the login page.
+	ka := "a:" + s.clientIP(r)
+	if !s.loginFails.Take(ka, now, LoginFailsPerAddress) {
+		s.render(w, http.StatusTooManyRequests, "setup", authPageData{pageBase: s.abase(w, r, nil), Username: name, Remember: true,
+			Error: fmt.Sprintf("Too many wrong setup codes. Wait %d minutes and try again.", int(loginWindow.Minutes()))})
+		return
+	}
+	code, _ := protocol.NormalizeJoinCode(r.PostFormValue("setup_code"))
+	if want := s.SetupCode(); want == "" || !httpx.EqualSecret(code, want) {
+		s.authEvent(r, "", "setup refused: wrong setup code")
+		again("That is not the setup code. It is in the server's log: docker logs <container> | grep setup_code")
+		return
+	}
+	s.loginFails.Release(ka, now)
 	if _, err := store.ValidUsername(name); err != nil {
 		again(err.Error())
 		return
@@ -263,7 +339,12 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		again("The two passwords are not the same.")
 		return
 	}
-	hash, err := hashPassword(pw)
+	var hash string
+	var err error
+	if busy := s.hash(func() { hash, err = hashPassword(pw) }); busy != nil {
+		again(sentence(busy))
+		return
+	}
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -278,6 +359,9 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		again(err.Error())
 		return
 	}
+	s.setupMu.Lock()
+	s.setupCode = ""
+	s.setupMu.Unlock()
 	s.authEvent(r, u.Username, "first admin account created on the setup page: "+u.Username)
 	s.login(w, r, u, true, "")
 }
@@ -306,7 +390,7 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	now := s.now()
-	addr := httpx.ClientIP(r)
+	addr := s.clientIP(r)
 	name, pw := strings.TrimSpace(r.PostFormValue("username")), r.PostFormValue("password")
 	remember := r.PostFormValue("remember") == "on"
 	next := r.PostFormValue("next")
@@ -314,23 +398,43 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	again := func(status int, msg string) {
 		s.render(w, status, "login", authPageData{pageBase: s.abase(w, r, nil), Error: msg, Username: name, Next: next, Remember: remember})
 	}
-	// The limit is checked BEFORE the password, so a locked-out guesser
-	// learns nothing more and costs no hashing.
-	if s.loginFails.Count(ka, now) >= LoginFailsPerAddress || s.loginFails.Count(ku, now) >= LoginFailsPerUser {
+	// Both slots are TAKEN before the password is hashed, so a locked-out
+	// guesser learns nothing more and costs no hashing, and parallel
+	// requests cannot all slip through. A login that succeeds gives its
+	// slots back: the limits count failures.
+	locked := func() {
 		again(http.StatusTooManyRequests, fmt.Sprintf("Too many failed logins. Wait %d minutes and try again.", int(loginWindow.Minutes())))
+	}
+	if !s.loginFails.Take(ka, now, LoginFailsPerAddress) {
+		locked()
+		return
+	}
+	if !s.loginFails.Take(ku, now, LoginFailsPerUser) {
+		s.loginFails.Release(ka, now)
+		locked()
 		return
 	}
 	u, err := s.st.UserByName(name)
-	switch {
-	case errors.Is(err, store.ErrNotFound):
-		verifyNobody(pw)
-	case err != nil:
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		s.fail(w, err)
 		return
 	}
-	if u == nil || !verifyPassword(u.PasswordHash, pw) {
-		s.loginFails.Add(ka, now)
-		s.loginFails.Add(ku, now)
+	ok := false
+	busy := s.hash(func() {
+		if u == nil {
+			verifyNobody(pw)
+		} else {
+			ok = verifyPassword(u.PasswordHash, pw)
+		}
+	})
+	if busy != nil {
+		// Not the client's failure: give the slots back.
+		s.loginFails.Release(ka, now)
+		s.loginFails.Release(ku, now)
+		again(http.StatusServiceUnavailable, sentence(busy))
+		return
+	}
+	if !ok {
 		shown := name
 		if len(shown) > 40 {
 			shown = shown[:40] + "…"
@@ -339,6 +443,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		again(http.StatusUnauthorized, "Wrong username or password.")
 		return
 	}
+	s.loginFails.Release(ka, now)
+	s.loginFails.Release(ku, now)
 	how := "logged in"
 	if remember {
 		how += ", kept logged in for 30 days"
@@ -356,7 +462,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	s.authEvent(r, currentUser(r).Username, "logged out")
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: s.adminPath("/"), MaxAge: -1,
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure(r)})
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.secure(r)})
 	http.Redirect(w, r, s.adminPath("/login?bye=1"), http.StatusSeeOther)
 }
 

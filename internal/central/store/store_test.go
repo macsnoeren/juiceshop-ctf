@@ -654,6 +654,28 @@ func TestFlags(t *testing.T) {
 	}
 }
 
+// ---- a cheat score of 0 sent first cannot hide a real one ----
+
+func TestTheHighestCheatScoreIsKept(t *testing.T) {
+	st := newStore(t)
+	_, code := game(t, st, "Lab", protocol.StateRunning)
+	m := join(t, st, code, "Anna", t0)
+	for i, c := range []float64{0, 0.9, 0.3} {
+		r := &protocol.Report{Protocol: 2, SentAt: at(10 + i), Node: protocol.Node{UID: strings.Repeat("a", 32)},
+			Solves: []protocol.Solve{{Key: "scoreBoardChallenge", SolvedAt: at(5), Cheat: &c}}}
+		if _, _, err := st.Report(protocol.Hash(m.token), r, at(10+i), ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got float64
+	if err := st.db.QueryRow(`SELECT cheat FROM solves WHERE participant_id = ?`, m.id).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != 0.9 {
+		t.Errorf("cheat score %v after 0, 0.9, 0.3; want 0.9", got)
+	}
+}
+
 func TestHonestPlayRaisesNoFlag(t *testing.T) {
 	st := newStore(t)
 	g, code := game(t, st, "Lab", protocol.StateRunning)

@@ -14,6 +14,13 @@
 #
 # >>> The capabilities are the image's contract: the keeper needs SETUID
 # and SETGID and nothing else, and refuses to start ctf-node otherwise.
+#
+# Two ports: 80 the shop, 8080 the student's page (two origins: script in
+# the shop cannot use the page). Docker publishes them on EVERY interface,
+# so a firewall rule keeps NEW connections from eth0, the NAT adapter, away
+# from them: that adapter is the way OUT to the central server. If somebody
+# sets it to "bridged" anyway, classmates still cannot reach the shop or
+# press Forget on the page; only eth1, the host-only network of Kali, can.
 
 name="Juice Shop CTF"
 description="Juice Shop and ctf-node in one container"
@@ -36,9 +43,15 @@ start() {
 		fi
 		sleep 1
 	done
+	# DOCKER-USER sees the traffic to the published ports; only NEW
+	# connections are dropped, so the answers to the VM's own requests
+	# through eth0 still come in.
+	iptables -C DOCKER-USER -i eth0 -m conntrack --ctstate NEW -j DROP 2>/dev/null ||
+		iptables -I DOCKER-USER -i eth0 -m conntrack --ctstate NEW -j DROP ||
+		{ eend 1 "cannot shut the NAT adapter out of the published ports"; return 1; }
 	if ! docker container inspect "$container" >/dev/null 2>&1; then
 		docker create --name "$container" --restart unless-stopped \
-			-p 80:80 -v juiceshop-ctf:/var/lib/ctf \
+			-p 80:80 -p 8080:8080 -v juiceshop-ctf:/var/lib/ctf \
 			--cap-drop ALL --cap-add SETUID --cap-add SETGID \
 			--security-opt no-new-privileges \
 			--tmpfs /juice-shop/logs:uid=65532,gid=65532,mode=0755 \

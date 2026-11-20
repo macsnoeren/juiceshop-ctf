@@ -8,8 +8,8 @@ VirtualBox lab with Kali on a host-only network.
 
 ```
  the student's laptop (VirtualBox or VMware)
- Kali ── host-only ──► CTF VM: Alpine Linux, Docker, juiceshop-ctf on :80 ── NAT ──► central server (CENTRAL_URL)
-                        /ctf/        the student's page: join, progress, Restart, Forget
+ Kali ── host-only ──► CTF VM: Alpine Linux, Docker, juiceshop-ctf on :80 and :8080 ── NAT ──► central server (CENTRAL_URL)
+                        :8080/ctf/   the student's page: join, progress, Restart, Forget
                         /juiceshop/  their own Juice Shop
 ```
 
@@ -39,10 +39,12 @@ join.
 
 | Adapter | Attached to | Inside the VM | Why |
 |---------|-------------|---------------|-----|
-| 1 | NAT | `eth0`, DHCP | the way out, to the central server |
-| 2 | host-only (VirtualBox `vboxnet0`, VMware `VMnet1`) | `eth1`, DHCP | the lab: Kali reaches port 80 here |
+| 1 | NAT | `eth0`, DHCP | the way out, to the central server; a firewall rule keeps new connections from it away from ports 80 and 8080 |
+| 2 | host-only (VirtualBox `vboxnet0`, VMware `VMnet1`) | `eth1`, DHCP | the lab: Kali reaches ports 80 and 8080 here |
 
-**Not bridged**: the shop would be on the classroom network.
+**Not bridged**: the shop would be on the classroom network. Adapter 1
+bridged by mistake does no harm (the firewall rule); adapter 2 bridged puts
+the shop and the CTF page within classmates' reach.
 
 ## Building
 
@@ -68,7 +70,7 @@ What it does (the comments in each file say why):
 | provision | builder → VM | [`provision.sh`](provision.sh): Docker, the image, the [service](files/juiceshop-ctf.initd), both adapters, the SATA/NVMe drivers |
 | lock down | builder → VM | [`files/lockdown.sh`](files/lockdown.sh): SSH removed, root locked, caches gone, free space trimmed |
 | package | builder | [`package.sh`](package.sh): the disk as an OVA (VirtualBox) and as a `.vmx` + `.vmdk` (VMware) |
-| test | builder | [`test.sh`](test.sh): both exported disks booted on SATA with two e1000, `/ctf/` and `/juiceshop/` checked, no SSH |
+| test | builder | [`test.sh`](test.sh): both exported disks booted on SATA with two e1000, `/ctf/` and `/juiceshop/` checked from adapter 2, closed from adapter 1, no SSH |
 
 **Why not Packer's `virtualbox-iso` and `vmware-iso`?** Those builders drive
 a VirtualBox or VMware installed on the machine that runs Packer, and both
@@ -88,7 +90,7 @@ version, on a machine with VirtualBox (and VMware, if students use it):
    **Host-only Adapter**. Start it; the console shows *Juice Shop CTF
    <version>* and no login.
 2. From Kali (or the host) on the host-only network:
-   `http://<address>/ctf/` shows **Join the CTF**; find the address with
+   `http://<address>:8080/ctf/` shows **Join the CTF**; find the address with
    `nmap -p 80 192.168.56.0/24`.
 3. Join a test game, solve `/juiceshop/ftp/acquisitions.md`, see it on the
    board. Then **Forget** on the VM's page and delete the test game.

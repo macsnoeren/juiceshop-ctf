@@ -16,7 +16,7 @@
 <header class="appbar">
   <a class="home" href="/ctf/"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M21 1.5l-2.6 7" stroke="#e8ecef" stroke-width="1.8" stroke-linecap="round"/><path d="M8 12l4-7h8l4 7v16a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2z" fill="#70e000"/><path d="M8 12h16" stroke="#50a400" stroke-width="1.5"/><path d="M13 15v10M13 15h7l-2 3 2 3h-7" fill="#121316" stroke="#121316" stroke-width="1.6" stroke-linejoin="round"/></svg><span class="name">Juice Shop CTF</span><span class="tag">this VM</span></a>
   {{if not .NeedsEntry}}<nav aria-label="Pages">
-    <a class="tbtn" href="/juiceshop/">Juice Shop</a>
+    <a class="tbtn" href="{{.ShopURL}}">Juice Shop</a>
     {{with .Membership}}{{if .BoardURL}}<a class="tbtn" href="{{.BoardURL}}">Leaderboard</a>{{end}}{{end}}
   </nav>{{end}}
 </header>
@@ -49,9 +49,10 @@
 
 <section class="card">
   <h1>Your Juice Shop</h1>
-  <p class="buttons"><a class="button accent" href="/juiceshop/">Open the Juice Shop</a>
+  <p class="buttons"><a class="button accent" href="{{.ShopURL}}">Open the Juice Shop</a>
     {{with .Membership}}{{if .BoardURL}}<a class="button secondary" href="{{.BoardURL}}">Leaderboard</a>{{end}}{{end}}</p>
-  <p class="hint">From Kali: <span class="address">http://{{.Host}}/juiceshop/</span> — in the browser, Burp, curl or sqlmap. No cookie is needed.
+  <p class="hint">From Kali: <span class="address">{{.ShopURL}}</span> — in the browser, Burp, curl or sqlmap. No cookie is needed.
+    This page is on a port of its own, so nothing that runs in the shop can press its buttons.
     {{if not .Reachable}}<strong>The Juice Shop is not answering at the moment; it may be starting.</strong>{{end}}</p>
 </section>
 
@@ -74,6 +75,7 @@
 </section>
 {{else if or (not $m) (eq $m.Status "refused") (eq $m.Status "rejected")}}
 <section class="card">
+  {{if .Plain}}<p class="alert" role="note">The central server is reached over plain <code>http://</code>: anyone on the network in between can read your join code and your token. Ask your teacher for an <code>https://</code> address.</p>{{end}}
   {{if $m}}
     <h2>Join again</h2>
     <p class="alert error" role="alert">{{$m.Problem}}</p>

@@ -17,9 +17,13 @@
 //	GET  <base>/healthz
 //
 // /admin/ needs an admin account (auth.go). While the database has none,
-// <base>/admin/setup makes the first one for whoever gets there first: open
-// it yourself before you publish a fresh server, or keep an allow-list in
-// the reverse proxy in front of /admin/.
+// <base>/admin/setup makes the first one, for whoever gives the one-time
+// SETUP CODE that this server prints to its log when it starts.
+//
+// Requests from anybody can make the server write events (a wrong join
+// code, a broken report). Those go through s.noise, which writes at most
+// RejectedEventsPerMinute per address: a flood cannot fill the database or
+// bury the flags in the feed.
 package central
 
 import (
@@ -31,6 +35,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -44,6 +49,9 @@ import (
 // Config is ctf-central's configuration. Everything else is in the database.
 type Config struct {
 	BasePath string
+	// TrustedProxies are the peers whose X-Real-IP and X-Forwarded-Proto
+	// are believed; nil means httpx.DefaultTrustedProxies.
+	TrustedProxies httpx.Proxies
 }
 
 // Server is ctf-central.
@@ -59,6 +67,17 @@ type Server struct {
 	wrongCodes *window // wrong join codes per client address
 	codeJoins  *window // joins per game
 	loginFails *window // failed admin logins per address and per username
+	noisy      *window // events written for requests from anybody, per address
+
+	csrf *httpx.CSRF
+	// hashing bounds the password hashes running at once. A hash costs a
+	// fraction of a second of CPU on purpose, and a login needs no account,
+	// so without this anybody could keep every core busy.
+	hashing  chan struct{}
+	hashWait time.Duration // how long a login waits for a free slot
+	// setupCode is asked for on the setup page while there is no account.
+	setupMu   sync.Mutex
+	setupCode string
 }
 
 // The join limits. Never per address alone: a school
@@ -67,13 +86,25 @@ type Server struct {
 const (
 	WrongCodesPerMinute = 20
 	JoinsPerGamePerMin  = 300
+	// RejectedEventsPerMinute is how many events requests from one address
+	// may write in a minute before the rest are counted, not written.
+	RejectedEventsPerMinute = 30
+	// HashesAtOnce is how many password hashes may run at the same time.
+	HashesAtOnce = 4
 )
 
 // New returns a server on st.
 func New(cfg Config, st *store.Store, log *slog.Logger) (*Server, error) {
+	if cfg.TrustedProxies == nil {
+		cfg.TrustedProxies = httpx.MustProxies(httpx.DefaultTrustedProxies)
+	}
 	s := &Server{cfg: cfg, st: st, log: log, now: time.Now,
-		wrongCodes: newWindow(time.Minute), codeJoins: newWindow(time.Minute), loginFails: newWindow(loginWindow)}
+		wrongCodes: newWindow(time.Minute), codeJoins: newWindow(time.Minute), loginFails: newWindow(loginWindow),
+		noisy: newWindow(time.Minute), csrf: httpx.NewCSRF(csrfLife), hashing: make(chan struct{}, HashesAtOnce), hashWait: 2 * time.Second}
 	if err := s.reloadSettings(); err != nil {
+		return nil, err
+	}
+	if err := s.newSetupCode(); err != nil {
 		return nil, err
 	}
 	t, err := template.New("").Funcs(s.funcs()).ParseFS(centralweb.FS, "*.html", "*.svg")
@@ -153,6 +184,25 @@ func (s *Server) event(e store.Event) {
 	}
 }
 
+// noise writes an event that a request from ANYBODY caused (no valid token,
+// no login): at most RejectedEventsPerMinute per address per minute, then
+// one line saying that the rest of that minute is not written.
+func (s *Server) noise(e store.Event) {
+	if e.At.IsZero() {
+		e.At = s.now()
+	}
+	switch n := s.noisy.Next(e.Address, e.At); {
+	case n <= RejectedEventsPerMinute:
+		s.event(e)
+	case n == RejectedEventsPerMinute+1:
+		s.event(store.Event{At: e.At, Kind: store.EvRejected, Address: e.Address,
+			Text: fmt.Sprintf("more than %d rejected requests from this address in a minute: the rest of this minute is not written", RejectedEventsPerMinute)})
+	}
+}
+
+func (s *Server) clientIP(r *http.Request) string { return s.cfg.TrustedProxies.ClientIP(r) }
+func (s *Server) secure(r *http.Request) bool     { return s.cfg.TrustedProxies.Secure(r) }
+
 func apiError(w http.ResponseWriter, status int, msg string) {
 	httpx.WriteJSON(w, status, protocol.ErrorResponse{Error: msg})
 }
@@ -165,21 +215,21 @@ func (s *Server) decode(w http.ResponseWriter, r *http.Request, what string, int
 	if err == nil {
 		return true
 	}
-	addr := httpx.ClientIP(r)
+	addr := s.clientIP(r)
 	var mbe *http.MaxBytesError
 	if errors.As(err, &mbe) {
-		s.event(store.Event{Kind: store.EvRejected, Address: addr, Text: what + ": body too large"})
+		s.noise(store.Event{Kind: store.EvRejected, Address: addr, Text: what + ": body too large"})
 		apiError(w, http.StatusRequestEntityTooLarge, "request too large")
 		return false
 	}
-	s.event(store.Event{Kind: store.EvRejected, Address: addr, Text: what + ": body is not valid JSON"})
+	s.noise(store.Event{Kind: store.EvRejected, Address: addr, Text: what + ": body is not valid JSON"})
 	apiError(w, http.StatusBadRequest, "body is not valid JSON")
 	return false
 }
 
 func (s *Server) boardURL(r *http.Request, slug string) string {
 	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+	if s.secure(r) {
 		scheme = "https"
 	}
 	return scheme + "://" + r.Host + s.cfg.BasePath + "/g/" + slug + "/"
@@ -188,10 +238,10 @@ func (s *Server) boardURL(r *http.Request, slug string) string {
 // handleJoin is POST /api/v2/join.
 func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 	now := s.now()
-	addr := httpx.ClientIP(r)
+	addr := s.clientIP(r)
 	// Before anything else, so a guesser is slowed down whatever they send.
 	if s.wrongCodes.Count(addr, now) >= WrongCodesPerMinute {
-		s.event(store.Event{At: now, Kind: store.EvJoinRefused, Address: addr, Text: "too many wrong join codes from this address (429)"})
+		s.noise(store.Event{At: now, Kind: store.EvJoinRefused, Address: addr, Text: "too many wrong join codes from this address (429)"})
 		apiError(w, http.StatusTooManyRequests, "too many wrong join codes; wait a minute")
 		return
 	}
@@ -200,13 +250,13 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := req.Normalize(); err != nil {
-		s.event(store.Event{At: now, Kind: store.EvJoinRefused, Address: addr, Text: "invalid join: " + err.Error()})
+		s.noise(store.Event{At: now, Kind: store.EvJoinRefused, Address: addr, Text: "invalid join: " + err.Error()})
 		apiError(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), protocol.ErrInvalid.Error()+": "))
 		return
 	}
 	codeKey := protocol.Hash(req.Code)
 	if s.codeJoins.Count(codeKey, now) >= JoinsPerGamePerMin {
-		s.event(store.Event{At: now, Kind: store.EvJoinRefused, Address: addr, Text: "join limit of this game reached (429)"})
+		s.noise(store.Event{At: now, Kind: store.EvJoinRefused, Address: addr, Text: "join limit of this game reached (429)"})
 		apiError(w, http.StatusTooManyRequests, "too many joins at once; try again in a minute")
 		return
 	}
@@ -218,11 +268,11 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, store.ErrUnknownCode):
 		s.wrongCodes.Add(addr, now)
-		s.event(store.Event{At: now, Kind: store.EvJoinRefused, Address: addr, Text: "unknown join code (403), name " + req.Name})
+		s.noise(store.Event{At: now, Kind: store.EvJoinRefused, Address: addr, Text: "unknown join code (403), name " + req.Name})
 		apiError(w, http.StatusForbidden, err.Error())
 		return
 	case errors.Is(err, store.ErrGameDraft), errors.Is(err, store.ErrGameClosed):
-		s.event(store.Event{At: now, Kind: store.EvJoinRefused, GameID: gid, Address: addr, Text: err.Error() + " (409), name " + req.Name})
+		s.noise(store.Event{At: now, Kind: store.EvJoinRefused, GameID: gid, Address: addr, Text: err.Error() + " (409), name " + req.Name})
 		apiError(w, http.StatusConflict, err.Error())
 		return
 	case err != nil:
@@ -246,7 +296,7 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 func (s *Server) token(w http.ResponseWriter, r *http.Request, what string) (string, bool) {
 	t := httpx.BearerToken(r)
 	if !protocol.ValidParticipantToken(t) {
-		s.event(store.Event{Kind: store.EvRejected, Address: httpx.ClientIP(r), Text: what + ": no or malformed token (401)"})
+		s.noise(store.Event{Kind: store.EvRejected, Address: s.clientIP(r), Text: what + ": no or malformed token (401)"})
 		apiError(w, http.StatusUnauthorized, "a participant token is required")
 		return "", false
 	}
@@ -263,9 +313,9 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, "report", &rep) {
 		return
 	}
-	addr := httpx.ClientIP(r)
+	addr := s.clientIP(r)
 	if err := rep.Validate(); err != nil {
-		s.event(store.Event{Kind: store.EvRejected, Address: addr, Text: "report: " + err.Error()})
+		s.noise(store.Event{Kind: store.EvRejected, Address: addr, Text: "report: " + err.Error()})
 		apiError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -275,7 +325,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.Outcome == store.ReportUnknown {
-		s.event(store.Event{Kind: store.EvRejected, Address: addr, Text: "report: unknown token (401)"})
+		s.noise(store.Event{Kind: store.EvRejected, Address: addr, Text: "report: unknown token (401)"})
 		apiError(w, http.StatusUnauthorized, "unknown token: join again")
 		return
 	}
@@ -292,9 +342,9 @@ func (s *Server) handleLeave(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, "leave", &req) {
 		return
 	}
-	addr := httpx.ClientIP(r)
+	addr := s.clientIP(r)
 	if err := req.Validate(); err != nil {
-		s.event(store.Event{Kind: store.EvRejected, Address: addr, Text: "leave: " + err.Error()})
+		s.noise(store.Event{Kind: store.EvRejected, Address: addr, Text: "leave: " + err.Error()})
 		apiError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -304,7 +354,7 @@ func (s *Server) handleLeave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if out == store.LeaveUnknown {
-		s.event(store.Event{Kind: store.EvRejected, Address: addr, Text: "leave: unknown token (401)"})
+		s.noise(store.Event{Kind: store.EvRejected, Address: addr, Text: "leave: unknown token (401)"})
 		apiError(w, http.StatusUnauthorized, "unknown token")
 		return
 	}
@@ -324,6 +374,6 @@ func (s *Server) handleLegacy(w http.ResponseWriter, r *http.Request) {
 	if v1.Instance != "" && len(v1.Instance) <= 63 {
 		text += fmt.Sprintf(": instance %q, agent %.20s", v1.Instance, v1.AgentVersion)
 	}
-	s.event(store.Event{Kind: store.EvLegacy, Address: httpx.ClientIP(r), Text: text})
+	s.noise(store.Event{Kind: store.EvLegacy, Address: s.clientIP(r), Text: text})
 	apiError(w, http.StatusGone, "protocol 1 is no longer accepted: this central server runs Juice Shop CTF 1.1; import the 1.1 VM and join a game")
 }

@@ -67,7 +67,7 @@ cat >"$vbox/$name.ovf" <<EOF
     </ProductSection>
     <AnnotationSection>
       <Info>A human-readable annotation</Info>
-      <Annotation>Juice Shop CTF $version: OWASP Juice Shop and the CTF on port 80. Adapter 1 NAT, adapter 2 the host-only network of Kali. Open http://&lt;address&gt;/ctf/ from Kali.</Annotation>
+      <Annotation>Juice Shop CTF $version: OWASP Juice Shop on port 80, the CTF page on port 8080. Adapter 1 NAT, adapter 2 the host-only network of Kali. Open http://&lt;address&gt;:8080/ctf/ from Kali.</Annotation>
     </AnnotationSection>
     <OperatingSystemSection ovf:id="101">
       <Info>The kind of installed guest operating system</Info>
@@ -161,7 +161,7 @@ cat >"$vmw/$name.vmx" <<EOF
 config.version = "8"
 virtualHW.version = "14"
 displayName = "Juice Shop CTF $version"
-annotation = "Juice Shop CTF $version|0AAdapter 1 NAT, adapter 2 host-only (the network of Kali).|0AOpen http://<address>/ctf/ from Kali."
+annotation = "Juice Shop CTF $version|0AAdapter 1 NAT, adapter 2 host-only (the network of Kali).|0AOpen http://<address>:8080/ctf/ from Kali."
 guestOS = "otherlinux-64"
 firmware = "bios"
 memsize = "2048"

@@ -33,13 +33,15 @@ browser.
 **4. Find the CTF VM — that is your first task.** It is on Kali's host-only
 network and got its address from VirtualBox or VMware. `ip a` shows Kali's own
 address on that network; `nmap` or `netdiscover` finds the other machine on
-it. Port 80 is the one that answers.
+it. Ports 80 and 8080 are the ones that answer.
 
-**5. Join.** In Kali's browser open `http://<address of the CTF VM>/ctf/`.
+**5. Join.** In Kali's browser open `http://<address of the CTF VM>:8080/ctf/`
+(port 8080: your CTF page has a port of its own, so that nothing that runs in
+the shop can press its buttons; `http://<address>/ctf/` sends you there).
 Type your name (it is shown on the leaderboard) and the **join code** your
 teacher shows. Does the page ask **Which central server?** first? Then
 type the address your teacher gives you and press *Use this server*. Then *Open the Juice Shop* —
-`http://<address>/juiceshop/`.
+`http://<address>/juiceshop/`, on port 80.
 
 **6. Hack.** Browser, Burp, curl, sqlmap: everything works without a cookie
 or a password. Your CTF page shows your points, your rank and a link to the
@@ -52,6 +54,10 @@ On your CTF page:
 - **Forget** — deletes everything the VM knows about you and starts the shop
   empty. Only to start over or to hand the VM to someone else; what you
   already scored stays on the leaderboard, but you are taken off it.
+
+Got a link from a classmate to *your* Juice Shop? Think before you open it:
+the shop is vulnerable on purpose, and a link can run script in it. Your CTF
+page is out of its reach; your progress in the shop is not.
 
 Something wrong? Your CTF page usually says what. "Waiting for the central
 server" is fine: play on, your solves arrive when it can. Otherwise ask your

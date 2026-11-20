@@ -17,10 +17,11 @@ docker run -d --name ctf-central -p 8080:8080 \
   macsnoeren/juiceshop-ctf-central:latest
 ```
 
-Then open `http://<host>:8080/admin/`. **The first visit makes the first
-admin account** (the setup page), so open it yourself right after starting
-the server, or put it behind an allow-list. After that: make a game, show
-its join code, and put `http://<host>:8080/g/<game>/beamer` on the beamer.
+Then open `http://<host>:8080/admin/`. **A fresh server has no admin
+account**: the setup page asks for the one-time setup code the server prints
+to its log at start (`docker logs ctf-central | grep setup_code`). After
+that: make a game, show its join code, and put
+`http://<host>:8080/g/<game>/beamer` on the beamer.
 
 Point the students' VMs at it on their CTF page (*Central server*), or build
 the VM with another default.
@@ -36,11 +37,16 @@ environment only says where things are:
 | `CTF_DB_PATH` | `/data/central.db` | the SQLite database; keep `/data` on a volume |
 | `CTF_ADDR` | `:8080` | where it listens |
 | `CTF_BASE_PATH` | *(empty)* | a path prefix behind a reverse proxy, e.g. `/juiceshop-ctf` |
+| `CTF_TRUSTED_PROXIES` | loopback and the private ranges | the peers whose `X-Real-IP` and `X-Forwarded-Proto` count; `none` when nothing is in front |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 
-Behind HTTPS (a reverse proxy), pass `X-Forwarded-Proto` and `X-Real-IP`:
-the login cookie is then marked Secure, and the join limits count the
-students' real addresses.
+Behind HTTPS (a reverse proxy), the proxy must SET `X-Forwarded-Proto` and
+`X-Real-IP` (overwrite what the client sent; nginx:
+`proxy_set_header X-Real-IP $remote_addr;`): the login cookie is then
+marked Secure, and the limits count the students' real addresses. The
+headers count only from a peer in `CTF_TRUSTED_PROXIES`. Published
+directly, without a proxy, set `CTF_TRUSTED_PROXIES=none`, or anyone could
+pick an address with every request.
 
 ## The image
 

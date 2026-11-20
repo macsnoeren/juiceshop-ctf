@@ -20,10 +20,10 @@ Read the README and OPERATIONS.md first (twenty minutes).
 ```
  student's laptop (VirtualBox)                                           a server
  ┌──────┐  host-only   ┌─ CTF VM: one container, juiceshop-ctf ──────┐  NAT   ┌──────────────┐
- │ Kali │ ───────────► │ :80  ctf-node -serve (uid 10001, no caps)   │ ─────► │ ctf-central  │
- └──────┘              │       /ctf/        the student's page       │ HTTPS  │ SQLite       │
-                       │       /juiceshop/  proxy ──► Juice Shop     │        │ boards, admin│
-                       │                    (uid 65532, :3000)       │        └──────────────┘
+ │ Kali │ ───────────► │ ctf-node -serve (uid 10001, no caps)        │ ─────► │ ctf-central  │
+ └──────┘              │ :8080 /ctf/       the student's page        │ HTTPS  │ SQLite       │
+                       │ :80   /juiceshop/ proxy ──► Juice Shop      │        │ boards, admin│
+                       │                   (uid 65532, :3000)        │        └──────────────┘
                        │  ctf-node, the keeper (PID 1, root,         │
                        │  SETUID+SETGID only): starts the two above  │
                        └─────────────────────────────────────────────┘
@@ -33,7 +33,7 @@ There are **two programs**, both in Go, in one module:
 
 - **`ctf-node`** runs on every student's VM, inside the Juice Shop image. The
   binary plays three parts. As root it is the **keeper**: PID 1, it binds
-  :80 and starts Juice Shop and itself as `-serve`. As **`-serve`** it is the
+  :80 and :8080 and starts Juice Shop and itself as `-serve`. As **`-serve`** it is the
   unprivileged part that does all the work. As **`-signal`** it is a tiny
   helper the keeper uses to stop Juice Shop.
 - **`ctf-central`** runs once, on a server of the operator's. It holds the games and their
@@ -46,7 +46,7 @@ answer to the VM's next report.
 
 What happens when a student plays:
 
-1. On the page `/ctf/`, the student types a name and the game's **join
+1. On the page `:8080/ctf/`, the student types a name and the game's **join
    code**. ctf-node posts them to `/api/v2/join` and gets back a **token**
    for that participant. The token is stored in `node.db`. The join code is
    not stored, unless the central server is unreachable: then it waits in
@@ -78,8 +78,10 @@ make stop         # deploy/compose/stop.sh; `deploy/compose/stop.sh --wipe` also
 After `make run`:
 
 - admin is at `http://127.0.0.1:8090/juiceshop-ctf/admin/`;
-- the VMs are at `http://127.0.0.1:8091/ctf/` (and 8092, 8093);
-- `http://127.0.0.1:8091/juiceshop/ftp/acquisitions.md` solves a challenge.
+- the VMs' pages are at `http://127.0.0.1:8191/ctf/` (and 8192, 8193), their
+  shops at `http://127.0.0.1:8091/juiceshop/` (and 8092, 8093);
+- `http://127.0.0.1:8091/juiceshop/ftp/acquisitions.md` solves a challenge;
+- the setup code for the first admin account is printed by `make run`.
 
 To run both programs **without Docker**, for a quick loop on a page or a
 handler:
@@ -89,7 +91,7 @@ CTF_DB_PATH=/tmp/central.db CTF_ADDR=127.0.0.1:8080 CTF_BASE_PATH=/juiceshop-ctf
   go run ./cmd/ctf-central
 
 mkdir -p /tmp/ctf-node
-CTF_DATA_DIR=/tmp/ctf-node CTF_ADDR=127.0.0.1:8091 \
+CTF_DATA_DIR=/tmp/ctf-node CTF_ADDR=127.0.0.1:8091 CTF_PAGE_ADDR=127.0.0.1:8191 \
   CTF_CENTRAL_URL=http://127.0.0.1:8080/juiceshop-ctf JUICESHOP_URL=http://127.0.0.1:3000 \
   go run ./cmd/ctf-node
 ```
@@ -105,7 +107,8 @@ docker run --rm --network host -e BASE_PATH=/juiceshop \
 
 The webhook listener is always `127.0.0.1:8081`. Each `main.go` documents
 every environment variable it reads at the top of the file. Nothing in either
-program's environment is a secret.
+program's environment is a secret. The one secret either ever logs is the
+central server's setup code, on purpose (`auth.go` says why).
 
 ## 3. Where things are
 
@@ -114,8 +117,9 @@ cmd/ctf-node/main.go         the three parts of the node binary, its environment
 cmd/ctf-central/main.go      the central server's entry point, its environment, the daily prune
 
 internal/protocol            protocol v2: the request and answer types, validation, join codes and tokens
-internal/names               the one rule for display names (both sides use it)
-internal/httpx               logger, server with timeouts, the security headers and CSP
+internal/names               the one rule for display names, one script per name (both sides use it)
+internal/httpx               logger, server with timeouts, the security headers and CSP,
+                             proxies.go (whose X-Real-IP counts), csrf.go (form tokens)
 internal/config              reading the environment, collecting every error at once
 internal/health              the -healthcheck flag of both binaries
 internal/version             the version string, set by -ldflags from `git describe`
@@ -136,7 +140,7 @@ internal/node/keeper         the root part: supervisor.go (starting and stopping
 
 internal/central             ctf-central's HTTP side
   server.go                    routes, join/report/leave handlers, settings
-  limit.go                     the join rate limits
+  limit.go                     the join, login and event limits (Take: atomic)
   board.go, chart.go           the public boards per game, the score-over-time SVG
   admin.go                     /admin/: games, participants, events, settings, CSV
   auth.go                      the admin login: setup page, login/logout, sessions, users page
@@ -165,7 +169,7 @@ scripts/e2e.sh                 the whole CTF in Docker, end to end
 scripts/image.sh               the image on its own: users, isolation, respawn
 scripts/release-notes.sh       the release check, and the notes from CHANGELOG.md
 
-docs/                          OPERATIONS.md, STUDENT.md, PROTOCOL.md, DEVELOPER.md (this file)
+docs/                          OPERATIONS.md, STUDENT.md, PROTOCOL.md, THREAT-MODEL.md, DEVELOPER.md (this file)
 ```
 
 **Finding the code for a behaviour.** The table above names the file; its
@@ -234,8 +238,18 @@ noticing. Each one has a reason in the code next to it.
   table list in `scripts/image.sh`, which checks that Forget really leaves
   nothing behind.
 - The proxy **refuses Juice Shop's continue-code apply**. Without that, a
-  student could copy a classmate's progress. A change to the proxy's paths is
-  checked against the regexp in `proxy.go` and against `proxy_test.go`.
+  student could copy a classmate's progress, or make a code for every
+  challenge. **The path that is checked must be the path that is sent**: the
+  proxy refuses (never repairs) a path with `//` or a `.`/`..` segment, and
+  only takes `/juiceshop` off. A change to the proxy's paths is checked
+  against the regexp in `proxy.go` and against `proxy_test.go`.
+- **The page and the shop are two origins**: `-serve` serves the page on
+  :8080 (`Server.Page`) and the shop on :80 (`Server.Shop`), never one on the
+  other's port. Juice Shop has XSS on purpose; on one origin its script could
+  read the page and press Forget. The test harness puts both on one handler
+  (`both` in `harness_test.go`); production code must not. The keeper binds
+  both ports before Juice Shop starts, so code in Juice Shop cannot take
+  :8080.
 - `node.db` has its own migrations (in `store.go`), with the same rule:
   append only.
 
@@ -258,7 +272,10 @@ noticing. Each one has a reason in the code next to it.
   `rows`, `podium` and `ticker` templates in `layout.html`. Change one, change
   the other.
 - **Every admin route is wrapped**: a GET in `s.requireUser`, a POST in
-  `s.action` (the CSRF token, then the login). A route registered without
+  `s.action` (the CSRF token, then the login). A form token is an HMAC
+  (`httpx.CSRF`) bound to the session, not a cookie repeated: another site on
+  the same domain can set cookies. A POST that the browser marks as from
+  another site (`Sec-Fetch-Site`) is refused before anything else. A route registered without
   one is open to anybody who can reach the server; `TestAdminNeedsLogin`
   lists the pages it checks, so add a new page there. Admin actions are
   written with `s.admin(r, …)`, which records the account and address.
@@ -266,17 +283,25 @@ noticing. Each one has a reason in the code next to it.
   `hashPassword` (PBKDF2-SHA256, 600 000 iterations; the tests lower it in
   `auth_test.go`), session cookies are stored as their SHA-256. Neither goes
   into an event or a log line.
-- **The setup page is open while there is no account.** That is by design
-  (the first admin of a fresh server); an allow-list in the reverse proxy
-  can keep it to the operator. Do not add a way to reach "no accounts" again on a running
-  server, such as deleting the last user.
-- Every POST on the student's page goes through its CSRF wrapper (`s.form`).
+- **The setup page exists only while there is no account**, and asks for the
+  setup code the server logged at its start. Do not add a way to reach "no
+  accounts" again on a running server, such as deleting the last user.
+- **A limit that guards slow work is taken, not counted**: `window.Take`
+  reserves the attempt before the password is hashed, and at most
+  `HashesAtOnce` hashes run at once. `Count` then `Add` around a hash lets
+  parallel requests all through.
+- **An address is `s.clientIP(r)`**, never `X-Real-IP` read by hand: the
+  header counts only from a trusted proxy (`CTF_TRUSTED_PROXIES`), and only
+  as one valid IP. An event that a request from ANYONE causes goes through
+  `s.noise`, which writes at most `RejectedEventsPerMinute` per address.
+- Every POST on the student's page goes through its wrapper (`s.form`): the
+  origin check, then the form token.
 - Every page is **complete without JavaScript**: `board.js` and `admin.js`
   only add live refresh and animation, and honour `prefers-reduced-motion`.
 - **Nothing depends on a cookie surviving.** Students wipe cookies
   while attacking Juice Shop, so the student's page keeps its state in
-  `node.db`, never in the browser. The only cookie it sets is the CSRF one,
-  which is simply made again.
+  `node.db`, never in the browser. The form token is in the page, not in a
+  cookie; the only cookie is the optional gate's.
 
 **Docker and the test setup**
 - The test setup's compose project is called `juiceshop-ctf-lab`, and
@@ -361,8 +386,9 @@ every step.
    [internal/juiceshop/testdata/README.md](../internal/juiceshop/testdata/README.md),
    and rebuild the catalogue from them (the command is in
    `internal/juiceshop/catalogue.go`).
-2. Change the `FROM` tag in `deploy/docker/Dockerfile.node` and
-   `CatalogueVersion`.
+2. Change the `FROM` tag in `deploy/docker/Dockerfile.node`, with its new
+   digest (`docker buildx imagetools inspect bkimminich/juice-shop:<tag>`;
+   Dependabot leaves this image alone on purpose), and `CatalogueVersion`.
 3. Run `make test`; a failing client test shows what Juice Shop changed.
 4. Run `bash scripts/image.sh` (users, size, respawn) and `make e2e`.
 5. Look at the new Juice Shop next to the board: if its theme changed, the
@@ -427,6 +453,14 @@ Three levels, from fast to thorough:
   a pre-release, and Docker Hub then gets only `:1.2.0-rc.1`. The workflow
   needs the repository secrets `DH_USERNAME` and `DH_PASSWORD` (a Docker Hub
   access token), as guacamole-datadiode does.
+- **Pins.** The workflow's actions are pinned by commit SHA, the base images
+  by digest; Dependabot (`.github/dependabot.yml`) proposes the updates. A
+  new action or image is pinned the same way.
+- **Security.** [docs/THREAT-MODEL.md](THREAT-MODEL.md) is the threat model:
+  the data flows, the threats and the defences. A change that touches a trust boundary (a request from
+  outside, the proxy, a form, a token, a privilege) is checked against it,
+  and THREAT-MODEL.md is updated when a threat or a defence changes. Code
+  never refers to it, or to any other document.
 - **Before a commit:** run `make test`. Add a line to
   [CHANGELOG.md](../CHANGELOG.md) under the unreleased version. Update the
   document that describes what you changed: PROTOCOL.md, OPERATIONS.md,
@@ -490,5 +524,5 @@ Two consequences for your changes:
 | first blood | the first participant to solve a challenge, by time of receipt; a mark on the board, no extra points |
 | keeper | ctf-node as PID 1, the only part with privilege |
 | the gate | the optional `CTF_GATE=session`: a personal return code for VMs that others can reach |
-| setup page | `<base>/admin/setup`: makes the first admin account, and exists only while there is none |
+| setup page | `<base>/admin/setup`: makes the first admin account with the setup code from the log, and exists only while there is none |
 | session | an admin login: a cookie, stored as its SHA-256; 30 days with "keep me logged in", else until the browser closes or 12 hours unused |

@@ -77,28 +77,53 @@ func (s *Server) abase(w http.ResponseWriter, r *http.Request, g *store.Game) pa
 	return pb
 }
 
-func (s *Server) adminCSRF(w http.ResponseWriter, r *http.Request) string {
-	if c, err := r.Cookie(adminCSRFCookie); err == nil && len(c.Value) == 32 {
-		return c.Value
+// csrfLife is how long an admin form stays valid.
+const csrfLife = 24 * time.Hour
+
+// The CSRF token of an admin form is an httpx.CSRF token BOUND to the
+// session cookie (to its hash, which is what the database knows too): a
+// cookie that another site on the same domain planted is worthless, because
+// nobody but this server can make a token for it, and nobody but the logged
+// in browser has the session it is bound to. Before a login (the login and
+// setup pages) there is no session, and the token is bound to a random
+// cookie of its own; Sec-Fetch-Site keeps other sites out there too.
+func (s *Server) csrfBinding(r *http.Request) (string, bool) {
+	if c, err := r.Cookie(sessionCookie); err == nil && len(c.Value) == 64 {
+		return "s:" + protocol.Hash(c.Value), true
 	}
-	v := httpx.RandomHex(16)
-	http.SetCookie(w, &http.Cookie{
-		Name: adminCSRFCookie, Value: v, Path: s.cfg.BasePath + "/admin/",
-		HttpOnly: true, SameSite: http.SameSiteStrictMode,
-		Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
-	})
-	return v
+	if c, err := r.Cookie(adminCSRFCookie); err == nil && len(c.Value) == 32 {
+		return "c:" + c.Value, true
+	}
+	return "", false
 }
 
-func (s *Server) csrf(h http.HandlerFunc) http.HandlerFunc {
+// adminCSRF is the token for the forms of this page.
+func (s *Server) adminCSRF(w http.ResponseWriter, r *http.Request) string {
+	b, ok := s.csrfBinding(r)
+	if !ok {
+		v := httpx.RandomHex(16)
+		http.SetCookie(w, &http.Cookie{
+			Name: adminCSRFCookie, Value: v, Path: s.cfg.BasePath + "/admin/",
+			HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: s.secure(r),
+		})
+		b = "c:" + v
+	}
+	return s.csrf.Token(b, s.now())
+}
+
+func (s *Server) csrfCheck(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		c, err := r.Cookie(adminCSRFCookie)
-		if err != nil || !httpx.EqualSecret(c.Value, r.PostFormValue("csrf")) {
+		if httpx.CrossOrigin(r) {
+			http.Error(w, "this form was sent from another site", http.StatusForbidden)
+			return
+		}
+		b, ok := s.csrfBinding(r)
+		if !ok || !s.csrf.Valid(r.PostFormValue("csrf"), b, s.now()) {
 			http.Error(w, "form expired: reload the admin page and try again", http.StatusForbidden)
 			return
 		}
@@ -112,7 +137,7 @@ func (s *Server) admin(r *http.Request, e store.Event) {
 	if u := currentUser(r); u != nil {
 		e.Actor = u.Username
 	}
-	e.Address = httpx.ClientIP(r)
+	e.Address = s.clientIP(r)
 	s.event(e)
 }
 
@@ -499,7 +524,7 @@ func (s *Server) handleEventsCSV(w http.ResponseWriter, r *http.Request) {
 	cw := csv.NewWriter(w)
 	cw.Write([]string{"at", "kind", "game", "participant", "by", "address", "text"})
 	for _, e := range evs {
-		cw.Write([]string{e.At.UTC().Format(time.RFC3339), e.Kind, csvSafe(e.GameName), csvSafe(e.ParticipantName), csvSafe(e.Actor), e.Address, csvSafe(e.Text)})
+		cw.Write([]string{e.At.UTC().Format(time.RFC3339), e.Kind, csvSafe(e.GameName), csvSafe(e.ParticipantName), csvSafe(e.Actor), csvSafe(e.Address), csvSafe(e.Text)})
 	}
 	cw.Flush()
 }

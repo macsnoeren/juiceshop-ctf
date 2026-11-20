@@ -4,13 +4,15 @@
 
 # image.sh: the juiceshop-ctf image on its own, checked from outside.
 #
-#   run         `docker run` as the VM does; /ctf/ and /juiceshop/ answer
+#   run         `docker run` as the VM does; /ctf/ answers on :8080 and only
+#               there, /juiceshop/ on :80
 #   size        the image is Juice Shop's plus less than 20 MB
 #   users       keeper uid 0, ctf-node uid 10001 with NO capabilities, Juice
 #               Shop uid 65532
 #   isolation   as 65532 (code in Juice Shop): node.db cannot be read,
 #               ctf-node and the keeper cannot be signalled; the webhook is
-#               not reachable from outside the container's loopback
+#               not reachable from outside the container's loopback; the
+#               page's port is the keeper's, so 65532 cannot take it
 #   respawn     killing Juice Shop from inside: the keeper starts it again and
 #               ctf-node puts the progress back
 #   refuse      without SETUID/SETGID the container does not start; ctf-node
@@ -25,7 +27,9 @@ cd "$(dirname "$0")/.."
 IMG=juiceshop-ctf:image-test
 C=juiceshop-ctf-image-test
 PORT="${IMAGE_TEST_PORT:-18400}"
-B="http://127.0.0.1:$PORT"
+PAGE_PORT="${IMAGE_TEST_PAGE_PORT:-18401}"
+B="http://127.0.0.1:$PORT"       # the shop
+P="http://127.0.0.1:$PAGE_PORT"  # the student's page
 NET=juiceshop-ctf-image-test
 JAR="$(mktemp)"
 STEP=setup
@@ -53,7 +57,7 @@ status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 as() { local u="$1"; shift; docker exec -u "$u" "$C" /nodejs/bin/node -e "$1"; }
 healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' "$C")" = healthy ]; }
 is_shop() { local o; o="$(curl -s "$B/juiceshop/")"; grep -q '<title>OWASP Juice Shop' <<<"$o"; }
-page_has() { local o; o="$(curl -s "$B/ctf/")"; grep -qF -- "$1" <<<"$o"; }
+page_has() { local o; o="$(curl -s "$P/ctf/")"; grep -qF -- "$1" <<<"$o"; }
 unsolved() { ! solved "$1"; }
 nothing_solved() {
     curl -s "$B/juiceshop/api/Challenges" | python3 -c '
@@ -72,12 +76,21 @@ docker rm -f "$C" >/dev/null 2>&1 || true
 docker network create "$NET" >/dev/null
 
 step "run (as on the VM, without a central server)"
-docker run -d --name "$C" --network "$NET" -p "127.0.0.1:$PORT:80" -v "$C:/var/lib/ctf" \
-    -e CTF_CENTRAL_URL= -e POLL_INTERVAL=5s \
+docker run -d --name "$C" --network "$NET" -p "127.0.0.1:$PORT:80" -p "127.0.0.1:$PAGE_PORT:8080" -v "$C:/var/lib/ctf" \
+    -e CTF_CENTRAL_URL= -e POLL_INTERVAL=5s -e CTF_SHOP_PORT="$PORT" -e CTF_PAGE_PORT="$PAGE_PORT" \
     --cap-drop ALL --cap-add SETUID --cap-add SETGID --security-opt no-new-privileges "$IMG" >/dev/null
 wait_for 90 "healthy" healthy
-[ "$(status "$B/ctf/")" = 200 ] || fail "/ctf/ is not 200"
+[ "$(status "$P/ctf/")" = 200 ] || fail "/ctf/ is not 200 on the page's port"
+[ "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$B/ctf/")" = "302 $P/ctf/" ] || fail "the shop's port serves the page, or does not send to it"
+[ "$(status -X POST "$B/ctf/forget")" = 404 ] || fail "the shop's port takes a form of the page"
 wait_for 60 "/juiceshop/ is the Juice Shop" is_shop
+# The continue-code apply, as typed and with the slashes that once got it
+# past the check: refused before Juice Shop sees it.
+for p in rest/continue-code/apply/x /rest/continue-code/apply/x rest//continue-code/apply/x; do
+    c="$(status -X PUT "$B/juiceshop/$p")"
+    [ "$c" = 403 ] || [ "$c" = 400 ] || fail "PUT /juiceshop/$p reached Juice Shop ($c)"
+done
+ok "the page only on its own port; continue-code apply refused, however written"
 docker run --rm "$IMG" -version | grep -q '^ctf-node v' || fail "-version"
 ok "$(docker run --rm "$IMG" -version)"
 
@@ -115,8 +128,8 @@ SERVE_PID="$(echo "$procs" | grep -- '-serve$' | cut -d'|' -f1)"
 JS_PID="$(echo "$procs" | grep 'app.js$' | cut -d'|' -f1)"
 
 step "join (locally) and solve"
-csrf="$(curl -s -c "$JAR" -b "$JAR" "$B/ctf/" | sed -n 's/.*name="csrf" value="\([0-9a-f]*\)".*/\1/p' | head -1)"
-[ "$(status -c "$JAR" -b "$JAR" --data-urlencode "csrf=$csrf" --data-urlencode "name=Image Test" "$B/ctf/join")" = 200 ] || fail "join"
+csrf="$(curl -s -c "$JAR" -b "$JAR" "$P/ctf/" | sed -n 's/.*name="csrf" value="\([0-9a-f]*\)".*/\1/p' | head -1)"
+[ "$(status -c "$JAR" -b "$JAR" --data-urlencode "csrf=$csrf" --data-urlencode "name=Image Test" "$P/ctf/join")" = 200 ] || fail "join"
 [ "$(status "$B/juiceshop/ftp/acquisitions.md")" = 200 ] || fail "solving"
 wait_for 20 "the page shows the solve" page_has '<span class="num">100</span>'
 
@@ -129,14 +142,16 @@ try { fs.readdirSync('/var/lib/ctf'); r.list = 'LISTED'; } catch (e) { r.list = 
 for (const [k, p] of [['node', $SERVE_PID], ['keeper', 1]]) {
   try { process.kill(p, 'SIGTERM'); r[k] = 'SIGNALLED'; } catch (e) { r[k] = e.code; }
 }
-console.log(JSON.stringify(r));")"
+const s = net.createServer();
+s.on('error', e => { r.page_port = e.code; console.log(JSON.stringify(r)); });
+s.listen(8080, () => { r.page_port = 'TAKEN'; s.close(); console.log(JSON.stringify(r)); });")"
 echo "   as 65532: $result"
-[ "$result" = '{"read":"EACCES","list":"EACCES","node":"EPERM","keeper":"EPERM"}' ] || fail "Juice Shop's user reaches ctf-node"
+[ "$result" = '{"read":"EACCES","list":"EACCES","node":"EPERM","keeper":"EPERM","page_port":"EADDRINUSE"}' ] || fail "Juice Shop's user reaches ctf-node"
 ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$C")"
 from_outside="$(docker run --rm --network "$NET" curlimages/curl:8.10.1 -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST "http://$ip:8081/webhook" || true)"
 [ "$from_outside" = 000 ] || fail "the webhook answers from outside the container ($from_outside)"
-[ "$(docker run --rm --network "$NET" curlimages/curl:8.10.1 -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$ip/ctf/")" = 200 ] || fail "port 80 is not reachable from outside"
-ok "node.db unreadable, ctf-node and the keeper not signallable, webhook on loopback only"
+[ "$(docker run --rm --network "$NET" curlimages/curl:8.10.1 -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$ip:8080/ctf/")" = 200 ] || fail "port 8080 is not reachable from outside"
+ok "node.db unreadable, ctf-node and the keeper not signallable, the page's port not takeable, webhook on loopback only"
 
 step "respawn: Juice Shop killed from inside"
 as 65532 "process.kill($JS_PID, 'SIGKILL')"
@@ -145,12 +160,12 @@ wait_for 60 "the keeper started it again and ctf-node restored the solve" solved
 [ "$(docker inspect -f '{{.RestartCount}}' "$C")" = 0 ] || fail "the container restarted"
 
 step "Restart Juice Shop button"
-csrf="$(curl -s -c "$JAR" -b "$JAR" "$B/ctf/" | sed -n 's/.*name="csrf" value="\([0-9a-f]*\)".*/\1/p' | head -1)"
-[ "$(status -c "$JAR" -b "$JAR" --data-urlencode "csrf=$csrf" "$B/ctf/restart")" = 200 ] || fail "restart"
+csrf="$(curl -s -c "$JAR" -b "$JAR" "$P/ctf/" | sed -n 's/.*name="csrf" value="\([0-9a-f]*\)".*/\1/p' | head -1)"
+[ "$(status -c "$JAR" -b "$JAR" --data-urlencode "csrf=$csrf" "$P/ctf/restart")" = 200 ] || fail "restart"
 wait_for 60 "the solve is back after the button" solved directoryListingChallenge
 
 step "Forget: node.db empty, Juice Shop empty"
-[ "$(status -c "$JAR" -b "$JAR" --data-urlencode "csrf=$csrf" --data-urlencode confirm=forget "$B/ctf/forget")" = 200 ] || fail "forget"
+[ "$(status -c "$JAR" -b "$JAR" --data-urlencode "csrf=$csrf" --data-urlencode confirm=forget "$P/ctf/forget")" = 200 ] || fail "forget"
 rows="$(as 10001 "
 const sqlite3 = require('/juice-shop/node_modules/sqlite3');
 const db = new sqlite3.Database('/var/lib/ctf/node.db', sqlite3.OPEN_READONLY);

@@ -84,6 +84,20 @@ func (e *Env) Duration(name string, def time.Duration) time.Duration {
 	return d
 }
 
+// Int parses a port number, 1 to 65535.
+func (e *Env) Int(name string, def int) int {
+	v, ok := e.get(name)
+	if !ok {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 || n > 65535 {
+		e.errs = append(e.errs, name+" must be a port number, 1 to 65535")
+		return def
+	}
+	return n
+}
+
 // Bool parses true/false/1/0/yes/no.
 func (e *Env) Bool(name string, def bool) bool {
 	v, ok := e.get(name)

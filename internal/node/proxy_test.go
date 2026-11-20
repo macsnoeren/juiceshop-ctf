@@ -138,3 +138,39 @@ func TestProxyRefusesContinueCodes(t *testing.T) {
 		t.Errorf("reading a continue code must still work (the score board shows it): %d", resp.StatusCode)
 	}
 }
+
+// ---- the path that is checked is the path that is sent ----
+
+func TestProxyRefusesPathsThatWouldChangeOnTheWay(t *testing.T) {
+	front, _ := proxyServer(t)
+	// Each of these once reached Juice Shop as /rest/continue-code…/apply,
+	// or could have with another backend: refused before the check.
+	for _, p := range []string{
+		"/juiceshop//rest/continue-code/apply/abc",
+		"/juiceshop/rest//continue-code/apply/abc",
+		"/juiceshop/rest/continue-code-findIt//apply/abc",
+		"/juiceshop/rest/x/../continue-code/apply/abc",
+		"/juiceshop/./rest/continue-code/apply/abc",
+		"/juiceshop/rest/x/%2e%2e/continue-code/apply/abc",
+		"/juiceshop/%2Frest/continue-code/apply/abc",
+		"/assets/../rest/continue-code/apply/abc",
+	} {
+		req, _ := http.NewRequest("PUT", front.URL+p, nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 400 && resp.StatusCode != 403 || strings.HasPrefix(string(b), "path=") {
+			t.Errorf("PUT %s: %d %q, want it refused", p, resp.StatusCode, b)
+		}
+	}
+	// An ordinary path with a dot in a name still passes.
+	resp, _ := http.Get(front.URL + "/juiceshop/ftp/acquisitions.md")
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(b) != "path=/ftp/acquisitions.md" {
+		t.Errorf("a file name with a dot: %q", b)
+	}
+}

@@ -4,7 +4,7 @@
 // Command ctf-node is the CTF half of the juiceshop-ctf container: the student's page, the proxy to Juice
 // Shop, the watcher and the reporter, in one binary that plays three parts:
 //
-//	ctf-node                  as root: the KEEPER (PID 1). Binds :80, starts
+//	ctf-node                  as root: the KEEPER (PID 1). Binds :80 and :8080, starts
 //	                          Juice Shop as 65532 and itself as `-serve` as
 //	                          10001, restarts Juice Shop on request.
 //	ctf-node -serve           as 10001, no capabilities: everything else.
@@ -18,7 +18,8 @@
 // Juice Shop's own.
 //
 // Started as a normal user (outside the image, for development) it runs
-// -serve directly on CTF_ADDR, against a Juice Shop it does not supervise.
+// -serve directly on CTF_ADDR and CTF_PAGE_ADDR, against a Juice Shop it
+// does not supervise.
 //
 // Configuration is environment only, and NOTHING in it is a secret: the
 // image is the same for every student, and a VM's identity is made when the
@@ -28,7 +29,12 @@
 //	                    empty: none. The student page can change it before joining.
 //	CTF_GATE            "session" for the optional gate; default: none
 //	CTF_DATA_DIR        default /var/lib/ctf (node.db; 0700, uid 10001)
-//	CTF_ADDR            default :80
+//	CTF_ADDR            default :80, the shop (/juiceshop/)
+//	CTF_PAGE_ADDR       default :8080, the student's page (/ctf/): ANOTHER ORIGIN than
+//	                    the shop, so script in the shop cannot use it (internal/node/page.go)
+//	CTF_SHOP_PORT       the port a browser uses for the shop, for the links (default: CTF_ADDR's)
+//	CTF_PAGE_PORT       the same for the page (default: CTF_PAGE_ADDR's); set both behind
+//	                    a port mapping such as the test setup's
 //	CTF_TIMEZONE        default Europe/Amsterdam, for the times on the page
 //	JUICESHOP_URL       default http://127.0.0.1:3000
 //	POLL_INTERVAL       default 30s
@@ -48,6 +54,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -76,12 +83,13 @@ func main() {
 
 	env := config.FromOS()
 	addr := env.String("CTF_ADDR", ":80")
+	pageAddr := env.String("CTF_PAGE_ADDR", ":8080")
 	if *showVersion {
 		fmt.Println("ctf-node", version.Version)
 		return
 	}
 	if *healthcheck {
-		if err := health.Check(addr, "/ctf/healthz"); err != nil {
+		if err := health.Check(pageAddr, "/ctf/healthz"); err != nil {
 			fmt.Fprintln(os.Stderr, "unhealthy:", err)
 			os.Exit(1)
 		}
@@ -94,8 +102,9 @@ func main() {
 	if !*serve && os.Getuid() == 0 {
 		log.Info("ctf-node keeper starting", "version", version.Version)
 		os.Exit(keeper.Run(ctx, keeper.Config{
-			Addr: addr,
-			Log:  log.With("part", "keeper"),
+			Addr:     addr,
+			PageAddr: pageAddr,
+			Log:      log.With("part", "keeper"),
 			JuiceShopEnv: []string{
 				"PATH=/usr/local/bin:/usr/bin:/bin",
 				"SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
@@ -108,7 +117,17 @@ func main() {
 			NodeEnv: append(passThrough(), "CTF_KEEPER=1"),
 		}))
 	}
-	os.Exit(runServe(ctx, stop, env, addr, log))
+	os.Exit(runServe(ctx, stop, env, addr, pageAddr, log))
+}
+
+// portOf is the port of a listen address such as ":8080".
+func portOf(addr string) int {
+	_, p, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(p)
+	return n
 }
 
 // passThrough is the part of the environment ctf-node -serve gets.
@@ -124,7 +143,7 @@ func passThrough() []string {
 	return out
 }
 
-func runServe(ctx context.Context, stop func(), env *config.Env, addr string, log *slog.Logger) int {
+func runServe(ctx context.Context, stop func(), env *config.Env, addr, pageAddr string, log *slog.Logger) int {
 	underKeeper := os.Getenv("CTF_KEEPER") == "1"
 	log = log.With("part", "node")
 	if underKeeper {
@@ -149,6 +168,8 @@ func runServe(ctx context.Context, stop func(), env *config.Env, addr string, lo
 	dataDir := env.String("CTF_DATA_DIR", "/var/lib/ctf")
 	jsURL := env.String("JUICESHOP_URL", "http://127.0.0.1:3000")
 	tz := env.String("CTF_TIMEZONE", "Europe/Amsterdam")
+	shopPort := env.Int("CTF_SHOP_PORT", portOf(addr))
+	pagePort := env.Int("CTF_PAGE_PORT", portOf(pageAddr))
 	if v := env.String("CTF_GATE", ""); v != "" && v != "session" {
 		log.Error(`CTF_GATE must be "session" or empty`)
 		return 2
@@ -182,11 +203,14 @@ func runServe(ctx context.Context, stop func(), env *config.Env, addr string, lo
 	defer db.Close()
 
 	var k node.Keeper
-	var ln net.Listener
+	var ln, pageLn net.Listener
 	if underKeeper {
 		ln, err = net.FileListener(os.NewFile(keeper.ListenerFD, "listener"))
+		if err == nil {
+			pageLn, err = net.FileListener(os.NewFile(keeper.PageListenerFD, "page-listener"))
+		}
 		if err != nil {
-			log.Error("the listener from the keeper", "err", err)
+			log.Error("the listeners from the keeper", "err", err)
 			return 1
 		}
 		k = keeper.NewClient(os.NewFile(keeper.ControlFD, "control"), func() {
@@ -196,6 +220,10 @@ func runServe(ctx context.Context, stop func(), env *config.Env, addr string, lo
 	} else {
 		if ln, err = net.Listen("tcp", addr); err != nil {
 			log.Error("cannot listen", "addr", addr, "err", err)
+			return 1
+		}
+		if pageLn, err = net.Listen("tcp", pageAddr); err != nil {
+			log.Error("cannot listen", "addr", pageAddr, "err", err)
 			return 1
 		}
 		log.Warn("running without the keeper: Restart Juice Shop and the restart after Forget are not available")
@@ -211,7 +239,7 @@ func runServe(ctx context.Context, stop func(), env *config.Env, addr string, lo
 	} else if count >= 0 {
 		log.Info("imported a 1.0 state: solves and continue codes, not the registration", "solves", count)
 	}
-	srv, err := node.NewServer(n, node.PageConfig{Location: loc, JuiceShop: node.NewProxy(target, log)})
+	srv, err := node.NewServer(n, node.PageConfig{Location: loc, JuiceShop: node.NewProxy(target, log), ShopPort: shopPort, PagePort: pagePort})
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 1
@@ -221,26 +249,30 @@ func runServe(ctx context.Context, stop func(), env *config.Env, addr string, lo
 		central = "(none)"
 	}
 	log.Info("ctf-node starting", "version", version.Version, "uid", os.Getuid(), "central_default", central,
-		"gate", cfg.Gate, "juiceshop", jsURL)
+		"gate", cfg.Gate, "juiceshop", jsURL, "shop", addr, "page", pageAddr)
 
-	web := httpx.NewServer(addr, srv.Handler())
+	web := httpx.NewServer(addr, srv.Shop())
 	web.WriteTimeout = 0 // the WebSocket of socket.io, and slow sqlmap runs
 	web.ReadTimeout = 0
+	page := httpx.NewServer(pageAddr, srv.Page())
 	hook := httpx.NewServer(webhookAddr, n.WebhookHandler())
-	errc := make(chan error, 2)
-	go func() {
-		err := web.Serve(ln)
+	errc := make(chan error, 3)
+	serve := func(s *http.Server, l net.Listener) {
+		err := s.Serve(l)
 		if err == http.ErrServerClosed {
 			err = nil
 		}
 		errc <- err
-	}()
+	}
+	go serve(web, ln)
+	go serve(page, pageLn)
 	go func() { errc <- httpx.Serve(ctx, hook, log) }()
 	go func() {
 		<-ctx.Done()
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		web.Shutdown(sctx)
+		page.Shutdown(sctx)
 	}()
 	done := make(chan struct{})
 	go func() { n.Run(ctx); close(done) }()

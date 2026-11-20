@@ -10,8 +10,10 @@
 # What the VM is in the end:
 #
 #   adapter 1 (eth0)  NAT        DHCP   the way out, to the central server
-#   adapter 2 (eth1)  host-only  DHCP   the lab: Kali reaches :80 here
-#   :80  the juiceshop-ctf container: /ctf/ and /juiceshop/
+#   adapter 2 (eth1)  host-only  DHCP   the lab: Kali reaches :80 and :8080 here
+#   :80   the juiceshop-ctf container: /juiceshop/
+#   :8080 the same container: /ctf/, the student's page (another origin)
+#   new connections to both from eth0 dropped (juiceshop-ctf.initd)
 #   no SSH, no password, nothing of a student until they join
 set -eux
 
@@ -81,7 +83,7 @@ rc-service docker stop
 cat >/etc/issue <<EOF
 Juice Shop CTF ${VERSION}
 
-This VM has no login. Open http://<its address>/ctf/ from Kali.
+This VM has no login. Open http://<its address>:8080/ctf/ from Kali.
 
 EOF
 cp /etc/issue /etc/motd

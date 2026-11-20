@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+**Security** (docs/THREAT-MODEL.md describes the whole picture)
+- The VM's proxy no longer lets a continue code through with an extra slash
+  (`/juiceshop//rest/continue-code/apply/…`): a path with `//` or a `.`/`..`
+  segment is refused, and the check runs on the path Juice Shop receives.
+- **The student's page moved to port 8080**, the shop stays on 80: two
+  origins, so script in the shop (an XSS a classmate's link sets off) can no
+  longer press *Forget* on the page. `http://<vm>/ctf/` redirects there. Its
+  form tokens are HMACs, no longer a cookie, and a form sent from another
+  origin is refused.
+- The VM drops new connections from its NAT adapter to both ports.
+- The VM refuses a central server on the internet over plain `http://`
+  (localhost, local names and private addresses still work, with a warning
+  on the page), follows no redirect from it, and a release needs an
+  `https://` `CENTRAL_URL`.
+- The first admin account needs the **setup code** that ctf-central logs at
+  its start (`docker logs … | grep setup_code`): a fresh server is no longer
+  the first visitor's.
+- `X-Real-IP` and `X-Forwarded-Proto` count only from a trusted proxy
+  (`CTF_TRUSTED_PROXIES`, default loopback and the private ranges; `none`
+  without a proxy), and only as a valid IP. The limits per address can no
+  longer be dodged, and the events CSV no longer takes a formula from it.
+- The login limits hold for requests sent at once, and at most four password
+  hashes run at the same time, so failed logins cannot load the server.
+- Admin form tokens are bound to the session, and a form from another site
+  is refused.
+- Requests without a token or login write at most 30 events per address per
+  minute.
+- The highest cheat score seen per challenge is kept, not the first.
+- A display name is written in one script: no Latin and Cyrillic letters
+  mixed, so a classmate's name cannot be copied with look-alikes.
+- The release workflow's actions are pinned by commit SHA and the base
+  images by digest, with Dependabot for the updates; each job has only the
+  permissions it needs.
+
+**Coding challenges count**
+- Juice Shop's coding challenges now reach the board: the VM reports each
+  *Find it* and *Fix it* (a new `coding` list in the report), and each scores
+  half the points of its challenge. They are not solves: "solved", the
+  categories and first blood stay about the hacking challenges. The ticker,
+  the participant and challenge pages, admin and the CSV export (a new
+  `coding` column) show them; so does the student's page on the VM. A VM
+  without this sends none, and a central server without it ignores them.
+
 **Repository**
 - Licensed under the GNU General Public License v3.0 or later (`LICENSE`):
   every source file says so in an SPDX header, both images carry the licence

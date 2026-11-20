@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"sort"
@@ -114,7 +115,9 @@ func New(cfg Config, shop Shop, db *Store, keeper Keeper, log *slog.Logger) (*No
 	}
 	return &Node{
 		cfg: cfg, shop: shop, db: db, keeper: keeper, log: log, now: time.Now,
-		httpc: &http.Client{Timeout: 15 * time.Second},
+		// No redirects: the central server never sends one, and following
+		// it could carry the token to another scheme or host.
+		httpc: &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 		st:    st, pollNow: make(chan struct{}, 1), reportNow: make(chan struct{}, 1), joinNow: make(chan struct{}, 1),
 	}, nil
 }
@@ -176,14 +179,49 @@ func (n *Node) CentralURL() string {
 // ErrJoinedAlready refuses what only makes sense before joining.
 var ErrJoinedAlready = errors.New("this VM has joined a game: press Forget first")
 
-// ValidateCentralURL checks an address typed on the page.
+// ValidateCentralURL checks an address typed on the page, or the image's
+// default.
+//
+// >>> PLAIN HTTP only to a server that is not on the internet: localhost, a
+// name without a dot (a Docker service, the test setup) or a private
+// address. Over plain HTTP anyone on the network between the VM and the
+// server reads the join code and every token, and can answer a report with
+// a forget that wipes the VM. On a network others share (the school's
+// Wi-Fi) that is still true, so the page says so (PlainOnSharedNetwork).
 func ValidateCentralURL(raw string) (string, error) {
 	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || len(raw) > 200 {
 		return "", errors.New("give the central server as http://… or https://…, e.g. https://ctf.example.org")
 	}
+	if u.Scheme == "http" && !localHost(u.Hostname()) {
+		return "", errors.New("a central server on the internet is reached with https://, never http://: over http anyone on the way reads your token")
+	}
 	return raw, nil
+}
+
+// localHost reports whether h is localhost, a loopback or private address,
+// or a name without a dot.
+func localHost(h string) bool {
+	if a, err := netip.ParseAddr(h); err == nil {
+		a = a.Unmap()
+		return a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast()
+	}
+	return strings.EqualFold(h, "localhost") || !strings.Contains(h, ".")
+}
+
+// PlainOnSharedNetwork reports whether the central server is reached over
+// plain HTTP on something other than this machine.
+func PlainOnSharedNetwork(central string) bool {
+	u, err := url.Parse(central)
+	if err != nil || u.Scheme != "http" {
+		return false
+	}
+	h := u.Hostname()
+	if a, err := netip.ParseAddr(h); err == nil {
+		return !a.Unmap().IsLoopback()
+	}
+	return !strings.EqualFold(h, "localhost")
 }
 
 // SetCentral changes the central server for the next join: a URL, "" for the

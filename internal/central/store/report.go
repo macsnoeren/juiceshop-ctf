@@ -159,8 +159,11 @@ func (s *Store) Report(tokenHash string, r *protocol.Report, now time.Time, addr
 			cheat = *sv.Cheat
 		}
 		if known[sv.Key] {
+			// The HIGHEST cheat score seen is kept, not the first: code in
+			// Juice Shop can post a 0 for a challenge before solving it,
+			// and a first-value rule would then hide the real score.
 			if cheat != nil {
-				if _, err := tx.Exec(`UPDATE solves SET cheat = COALESCE(cheat, ?) WHERE participant_id = ? AND challenge_key = ?`, cheat, p.ID, sv.Key); err != nil {
+				if _, err := tx.Exec(`UPDATE solves SET cheat = MAX(COALESCE(cheat, ?), ?) WHERE participant_id = ? AND challenge_key = ?`, cheat, cheat, p.ID, sv.Key); err != nil {
 					return resp, ReportResult{}, err
 				}
 			}

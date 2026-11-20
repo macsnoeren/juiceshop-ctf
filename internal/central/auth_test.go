@@ -4,11 +4,13 @@
 package central
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -90,12 +92,19 @@ func TestSetup(t *testing.T) {
 			t.Errorf("%s: %d → %q", p, w.Code, location(w))
 		}
 	}
-	// Bad input is refused and makes nothing.
+	// Bad input is refused and makes nothing: first of all a missing or
+	// wrong setup code, whatever else is right.
+	code := e.srv.SetupCode()
+	if len(code) != 10 {
+		t.Fatalf("setup code %q", code)
+	}
 	for _, f := range []url.Values{
-		{"username": {"x"}, "password": {adminPassword}, "password2": {adminPassword}},
-		{"username": {"teacher"}, "password": {"short"}, "password2": {"short"}},
-		{"username": {"teacher"}, "password": {adminPassword}, "password2": {adminPassword + "!"}},
-		{"username": {"teacher"}, "password": {"teacher   "}, "password2": {"teacher   "}},
+		{"username": {"teacher"}, "password": {adminPassword}, "password2": {adminPassword}},
+		{"setup_code": {"abcdefghjk"}, "username": {"teacher"}, "password": {adminPassword}, "password2": {adminPassword}},
+		{"setup_code": {code}, "username": {"x"}, "password": {adminPassword}, "password2": {adminPassword}},
+		{"setup_code": {code}, "username": {"teacher"}, "password": {"short"}, "password2": {"short"}},
+		{"setup_code": {code}, "username": {"teacher"}, "password": {adminPassword}, "password2": {adminPassword + "!"}},
+		{"setup_code": {code}, "username": {"teacher"}, "password": {"teacher   "}, "password2": {"teacher   "}},
 	} {
 		if w := e.form(base+"/admin/setup", base+"/admin/setup", f); w.Code != http.StatusBadRequest {
 			t.Errorf("setup %v: %d", f, w.Code)
@@ -108,6 +117,9 @@ func TestSetup(t *testing.T) {
 	w := e.setup(adminUser, adminPassword)
 	if location(w) != base+"/admin/" {
 		t.Errorf("after setup: %q", location(w))
+	}
+	if e.srv.SetupCode() != "" {
+		t.Error("the setup code outlives the setup")
 	}
 	c := cookieOf(w, sessionCookie)
 	if c == nil || !c.HttpOnly || c.Path != base+"/admin/" || c.SameSite != http.SameSiteLaxMode || c.MaxAge < 29*24*3600 {
@@ -132,8 +144,26 @@ func TestSetup(t *testing.T) {
 	if other.get(base+"/admin/").Code != http.StatusSeeOther {
 		t.Error("the late setup logged its sender in")
 	}
-	if evs, _ := e.st.Events(store.EventFilter{Kind: store.EvAuth}); len(evs) != 1 || evs[0].Actor != adminUser {
-		t.Errorf("auth events %+v", evs)
+	if evs, _ := e.st.Events(store.EventFilter{Kind: store.EvAuth}); len(evs) != 3 || evs[0].Actor != adminUser {
+		t.Errorf("auth events (two wrong codes, one setup) %+v", evs)
+	}
+}
+
+func TestSetupCodeGuessing(t *testing.T) {
+	e := newBareEnv(t)
+	f := url.Values{"setup_code": {"abcdefghjk"}, "username": {"mallory"}, "password": {adminPassword}, "password2": {adminPassword}}
+	for i := 0; i < LoginFailsPerAddress; i++ {
+		if w := e.form(base+"/admin/setup", base+"/admin/setup", f); w.Code != http.StatusBadRequest {
+			t.Fatalf("wrong code %d: %d", i, w.Code)
+		}
+	}
+	// Now even the right code waits, so the code cannot be guessed.
+	f.Set("setup_code", e.srv.SetupCode())
+	if w := e.form(base+"/admin/setup", base+"/admin/setup", f); w.Code != http.StatusTooManyRequests {
+		t.Errorf("after %d wrong codes: %d", LoginFailsPerAddress, w.Code)
+	}
+	if n, _ := e.st.UserCount(); n != 0 {
+		t.Errorf("%d users", n)
 	}
 }
 
@@ -256,6 +286,106 @@ func TestLoginLimits(t *testing.T) {
 	}
 	if w := d.login(adminUser, adminPassword, false, ""); w.Code != http.StatusTooManyRequests {
 		t.Errorf("after %d failures from one address: %d", LoginFailsPerAddress, w.Code)
+	}
+}
+
+// ---- the login limits hold for requests sent at once ----
+
+func TestLoginLimitsHoldInParallel(t *testing.T) {
+	e := newEnv(t)
+	c := e.client()
+	m := csrfRE.FindStringSubmatch(c.get(base + "/admin/login").Body.String())
+	jar := map[string]string{}
+	for k, v := range c.jar {
+		jar[k] = v
+	}
+	body := url.Values{"csrf": {m[1]}, "username": {adminUser}, "password": {"wrong password!"}}.Encode()
+	const n = 60
+	codes := make(chan int, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			r := httptest.NewRequest("POST", base+"/admin/login", strings.NewReader(body))
+			r.RemoteAddr = "192.0.2.7:4000"
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			r.Header.Set("X-Real-IP", fmt.Sprintf("198.51.100.%d", i)) // a new address each time
+			for k, v := range jar {
+				r.AddCookie(&http.Cookie{Name: k, Value: v})
+			}
+			w := httptest.NewRecorder()
+			e.h.ServeHTTP(w, r)
+			codes <- w.Code
+		}(i)
+	}
+	wg.Wait()
+	close(codes)
+	tried := 0
+	for code := range codes {
+		if code == http.StatusUnauthorized {
+			tried++
+		}
+	}
+	if tried > LoginFailsPerUser {
+		t.Errorf("%d passwords tried at once for one username, the limit is %d", tried, LoginFailsPerUser)
+	}
+}
+
+func TestLoginWhenHashingIsFull(t *testing.T) {
+	e := newEnv(t)
+	e.srv.hashWait = 10 * time.Millisecond
+	for i := 0; i < HashesAtOnce; i++ {
+		e.srv.hashing <- struct{}{}
+	}
+	c := e.client()
+	if w := c.login(adminUser, adminPassword, false, ""); w.Code != http.StatusServiceUnavailable {
+		t.Errorf("login with every hash slot taken: %d", w.Code)
+	}
+	for i := 0; i < HashesAtOnce; i++ {
+		<-e.srv.hashing
+	}
+	// A busy server is not the client's failure: nothing was counted.
+	for i := 0; i < LoginFailsPerUser-1; i++ {
+		c.login(adminUser, "wrong password!", false, "")
+	}
+	if w := c.login(adminUser, adminPassword, false, ""); w.Code != http.StatusSeeOther {
+		t.Errorf("the busy answer counted as a failure: %d", w.Code)
+	}
+}
+
+// ---- a form token is good only for the browser it was made for ----
+
+func TestCSRFIsBoundToTheSession(t *testing.T) {
+	e := newEnv(t)
+	// Mallory has her own account and session; her token is no good in
+	// the teacher's browser, even with her CSRF cookie planted there.
+	mallory := e.client()
+	if w := mallory.login(adminUser, adminPassword, false, ""); w.Code != http.StatusSeeOther {
+		t.Fatalf("login: %d", w.Code)
+	}
+	m := csrfRE.FindStringSubmatch(mallory.get(base + "/admin/").Body.String())
+	f := url.Values{"csrf": {m[1]}, "name": {"Planted"}}.Encode()
+	w := e.req("POST", base+"/admin/games", strings.NewReader(f), "Content-Type", "application/x-www-form-urlencoded")
+	if w.Code != http.StatusForbidden {
+		t.Errorf("a token of another session: %d", w.Code)
+	}
+	// A form sent from another site is refused whatever its token.
+	m = csrfRE.FindStringSubmatch(e.get(base + "/admin/").Body.String())
+	f = url.Values{"csrf": {m[1]}, "name": {"Cross"}}.Encode()
+	w = e.req("POST", base+"/admin/games", strings.NewReader(f), "Content-Type", "application/x-www-form-urlencoded", "Sec-Fetch-Site", "same-site")
+	if w.Code != http.StatusForbidden {
+		t.Errorf("a form from another site: %d", w.Code)
+	}
+	// The same form from admin itself goes through.
+	w = e.req("POST", base+"/admin/games", strings.NewReader(f), "Content-Type", "application/x-www-form-urlencoded", "Sec-Fetch-Site", "same-origin")
+	if w.Code != http.StatusOK {
+		t.Errorf("the form from admin: %d", w.Code)
+	}
+	// A token expires.
+	e.now = e.now.Add(csrfLife)
+	if w := e.req("POST", base+"/admin/games", strings.NewReader(f), "Content-Type", "application/x-www-form-urlencoded"); w.Code != http.StatusForbidden {
+		t.Errorf("an expired token: %d", w.Code)
 	}
 }
 

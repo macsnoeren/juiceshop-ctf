@@ -19,11 +19,15 @@
 # this setup, not part of the lab.
 #
 # >>> /juiceshop-ctf/admin/ has accounts, and a fresh database has none: the
-# first visitor gets the setup page and becomes the admin. Here that is you,
-# because everything is published on 127.0.0.1 only; in production an
-# allow-list in the reverse proxy can make sure of it.
+# setup page then asks for the setup code the central server logs at start
+# (start.sh prints it; `docker compose logs ctf-central | grep setup_code`).
 #
-# Ports: CTF_CENTRAL_PORT (8090), CTF_VM_PORT_1..3 (8091..8093).
+# Each VM has two ports, as on the real VM: the shop (80) and the student's
+# page (8080), two origins. Published here on other ports, so CTF_SHOP_PORT
+# and CTF_PAGE_PORT tell the VM which ones the browser uses, for its links.
+#
+# Ports: CTF_CENTRAL_PORT (8090); the shops CTF_VM_PORT_1..3 (8091..8093);
+# the pages CTF_VM_PAGE_PORT_1..3 (8191..8193).
 
 # >>> A project name of its own. 1.0's setup was the project "juiceshop-ctf",
 # with services of the same names (ctf-central) and the same volume
@@ -79,26 +83,35 @@ services:
     <<: *vm
     build: { context: ../.., dockerfile: deploy/docker/Dockerfile.node, args: { VERSION: "${VERSION:-dev}" } }
     pull_policy: build
-    environment: *vm-env
+    environment:
+      <<: *vm-env
+      CTF_SHOP_PORT: ${CTF_VM_PORT_1:-8091}
+      CTF_PAGE_PORT: ${CTF_VM_PAGE_PORT_1:-8191}
     volumes: [vm1:/var/lib/ctf]
     networks: [uplink, lab1]
-    ports: ["127.0.0.1:${CTF_VM_PORT_1:-8091}:80"]
+    ports: ["127.0.0.1:${CTF_VM_PORT_1:-8091}:80", "127.0.0.1:${CTF_VM_PAGE_PORT_1:-8191}:8080"]
   kali1: { <<: *kali, networks: [lab1] }
 
   vm2:
     <<: *vm
-    environment: *vm-env
+    environment:
+      <<: *vm-env
+      CTF_SHOP_PORT: ${CTF_VM_PORT_2:-8092}
+      CTF_PAGE_PORT: ${CTF_VM_PAGE_PORT_2:-8192}
     volumes: [vm2:/var/lib/ctf]
     networks: [uplink, lab2]
-    ports: ["127.0.0.1:${CTF_VM_PORT_2:-8092}:80"]
+    ports: ["127.0.0.1:${CTF_VM_PORT_2:-8092}:80", "127.0.0.1:${CTF_VM_PAGE_PORT_2:-8192}:8080"]
   kali2: { <<: *kali, networks: [lab2] }
 
   vm3:
     <<: *vm
-    environment: *vm-env
+    environment:
+      <<: *vm-env
+      CTF_SHOP_PORT: ${CTF_VM_PORT_3:-8093}
+      CTF_PAGE_PORT: ${CTF_VM_PAGE_PORT_3:-8193}
     volumes: [vm3:/var/lib/ctf]
     networks: [uplink, lab3]
-    ports: ["127.0.0.1:${CTF_VM_PORT_3:-8093}:80"]
+    ports: ["127.0.0.1:${CTF_VM_PORT_3:-8093}:80", "127.0.0.1:${CTF_VM_PAGE_PORT_3:-8193}:8080"]
   kali3: { <<: *kali, networks: [lab3] }
 
 networks:

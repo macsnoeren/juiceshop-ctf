@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
+# Dependabot keeps the pins current. The workflow's actions are pinned by
+# commit SHA and the Dockerfiles' base images by digest, so that a moved tag
+# cannot change what a release is built with; this file makes the pins move
+# on purpose instead, as a pull request a person reads and merges.
+#
+# Juice Shop's own image is left alone: a new Juice Shop is a new catalogue,
+# new fixtures and a new e2e run, never a bump on its own.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+  - package-ecosystem: docker
+    directories: [/deploy/docker, /deploy/vm]
+    schedule: { interval: monthly }
+    ignore:
+      - dependency-name: bkimminich/juice-shop
+  - package-ecosystem: gomod
+    directory: /
+    schedule: { interval: monthly }

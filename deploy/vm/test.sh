@@ -14,10 +14,12 @@
 # provision.sh; the build itself ran on virtio. -snapshot: the files under
 # test are never written.
 #
-# Checked per disk: /ctf/ answers and asks to join (nothing of anyone in
-# it) and a join goes to the central server it was built with (CENTRAL_URL)
-# — or, built without one, it asks for the central server first;
-# /juiceshop/ is Juice Shop, and there is no SSH server.
+# Checked per disk, from the host-only side (adapter 2, as Kali): /ctf/
+# answers on :8080 and asks to join (nothing of anyone in it) and a join
+# goes to the central server it was built with (CENTRAL_URL) — or, built
+# without one, it asks for the central server first; /juiceshop/ is Juice
+# Shop on :80. From the NAT side (adapter 1): neither port answers, and
+# there is no SSH server.
 #
 # What this cannot check: the import into VirtualBox or VMware itself (the
 # OVF and the .vmx). That is the operator's check in deploy/vm/README.md.
@@ -40,8 +42,8 @@ boot() { # boot DISK FORMAT
     qemu-system-x86_64 -accel "$accel" -machine pc -m 2048 -smp 2 -snapshot \
         -device ahci,id=ahci \
         -drive if=none,id=d0,file="$disk",format="$fmt" -device ide-hd,drive=d0,bus=ahci.0 \
-        -netdev user,id=n0,hostfwd=tcp:127.0.0.1:18580-:80,hostfwd=tcp:127.0.0.1:18522-:22 -device e1000,netdev=n0 \
-        -netdev user,id=n1,net=192.168.56.0/24 -device e1000,netdev=n1 \
+        -netdev user,id=n0,hostfwd=tcp:127.0.0.1:18590-:80,hostfwd=tcp:127.0.0.1:18591-:8080,hostfwd=tcp:127.0.0.1:18522-:22 -device e1000,netdev=n0 \
+        -netdev user,id=n1,net=192.168.56.0/24,hostfwd=tcp:127.0.0.1:18580-:80,hostfwd=tcp:127.0.0.1:18581-:8080 -device e1000,netdev=n1 \
         -display none -serial file:"$work/console.log" &
     qpid=$!
 }
@@ -49,14 +51,14 @@ boot() { # boot DISK FORMAT
 halt() { kill "$qpid" 2>/dev/null || true; wait "$qpid" 2>/dev/null || true; qpid=""; }
 
 check() { # check WHAT
-    local what="$1" B=http://127.0.0.1:18580 page
+    local what="$1" B=http://127.0.0.1:18580 P=http://127.0.0.1:18581 page
     echo "== $what"
     for _ in $(seq 300); do
-        [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$B/ctf/")" = 200 ] && break
+        [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$P/ctf/")" = 200 ] && break
         kill -0 "$qpid" 2>/dev/null || fail "$what: QEMU stopped"
         sleep 1
     done
-    page="$(curl -s --max-time 5 "$B/ctf/")"
+    page="$(curl -s --max-time 5 "$P/ctf/")"
     if [ -n "$central" ]; then
         grep -q 'Join the CTF' <<<"$page" || fail "$what: /ctf/ does not answer, or does not ask to join"
         ok "/ctf/ answers and asks to join"
@@ -77,6 +79,11 @@ check() { # check WHAT
     done
     grep -q '<title>OWASP Juice Shop' <<<"$page" || fail "$what: /juiceshop/ is not Juice Shop"
     ok "/juiceshop/ is Juice Shop"
+    for port in 18590 18591; do
+        code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$port/ctf/" || true)"
+        [ "$code" = 000 ] || fail "$what: the NAT adapter reaches the CTF (forwarded port $port answers $code)"
+    done
+    ok "the NAT adapter reaches neither the shop nor the page"
     banner="$(timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/18522; head -c 4 <&3' 2>/dev/null || true)"
     [ "$banner" != "SSH-" ] || fail "$what: an SSH server answers"
     ok "no SSH server"

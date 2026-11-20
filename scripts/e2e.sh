@@ -37,6 +37,7 @@ cd "$HERE/../deploy/compose"
 PROJECT=juiceshop-ctf-e2e
 export CTF_CENTRAL_PORT="${E2E_PORT:-18190}"
 export CTF_VM_PORT_1=18191 CTF_VM_PORT_2=18192 CTF_VM_PORT_3=18193
+export CTF_VM_PAGE_PORT_1=18291 CTF_VM_PAGE_PORT_2=18292 CTF_VM_PAGE_PORT_3=18293
 export VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)-e2e"
 C="http://127.0.0.1:$CTF_CENTRAL_PORT/juiceshop-ctf"
 WORK="$(mktemp -d)"
@@ -75,14 +76,15 @@ wait_for() {
 # kali N ARGS... : curl in kaliN, with that student's cookie jar
 kali() { local n="$1"; shift; dc exec -T "kali$n" curl -s -b /tmp/jar -c /tmp/jar "$@"; }
 kali_nojar() { local n="$1"; shift; dc exec -T "kali$n" curl -s "$@"; }
-page() { kali "$1" "http://vm$1/ctf/"; }
+# The page is on :8080 and the shop on :80: two origins, as on the VM.
+page() { kali "$1" "http://vm$1:8080/ctf/"; }
 csrf_of() { page "$1" | sed -n 's/.*name="csrf" value="\([0-9a-f]*\)".*/\1/p' | head -1; }
 # post N PATH FIELD=VALUE... : a form on VM N's page; prints the HTTP status
 post() {
     local n="$1" path="$2"; shift 2
     local args=(--data-urlencode "csrf=$(csrf_of "$n")")
     for f in "$@"; do args+=(--data-urlencode "$f"); done
-    kali "$n" -o /dev/null -w '%{http_code}' "${args[@]}" "http://vm$n$path"
+    kali "$n" -o /dev/null -w '%{http_code}' "${args[@]}" "http://vm$n:8080$path"
 }
 shop() { local n="$1"; shift; kali "$n" "http://vm$n/juiceshop/$*"; }
 solve() { [ "$(kali "$1" -o /dev/null -w '%{http_code}' "http://vm$1/juiceshop/$2")" = 200 ] || fail "solving $2 on VM $1"; }
@@ -105,12 +107,18 @@ shows() { page "$1" | has "$2"; }
 # ---- the operator side: admin, from this machine ---------------------------
 
 # Admin has accounts: a fresh central server sends every admin page to the
-# setup page, which makes the first account and logs this jar in for the rest.
+# setup page, which asks for the setup code the server logged at its start,
+# makes the first account and logs this jar in for the rest.
 AJ="$WORK/admin.jar"; : >"$AJ"
 admin_csrf() { curl -s -b "$AJ" -c "$AJ" "$C/admin/${1:-}" | sed -n 's/.*name="csrf" value="\([0-9a-f]*\)".*/\1/p' | head -1; }
 admin_setup() {
     [ "$(curl -s -o /dev/null -w '%{redirect_url}' "$C/admin/")" = "$C/admin/setup" ] || fail "a fresh admin does not lead to the setup page"
-    local code; code="$(curl -s -o /dev/null -w '%{http_code}' -b "$AJ" -c "$AJ" --data-urlencode "csrf=$(admin_csrf setup)" \
+    local setup; setup="$(dc logs ctf-central 2>/dev/null | sed -n 's/.*setup_code=\([a-z0-9-]*\).*/\1/p' | tail -1)"
+    [ -n "$setup" ] || fail "the central server logged no setup code"
+    local code; code="$(curl -s -o /dev/null -w '%{http_code}' -b "$AJ" -c "$AJ" --data-urlencode "csrf=$(admin_csrf setup)" -d setup_code=wrongcode1 \
+        -d username=mallory --data-urlencode "password=end to end test" --data-urlencode "password2=end to end test" "$C/admin/setup")"
+    [ "$code" = 400 ] || fail "setup without the setup code: $code"
+    code="$(curl -s -o /dev/null -w '%{http_code}' -b "$AJ" -c "$AJ" --data-urlencode "csrf=$(admin_csrf setup)" --data-urlencode "setup_code=$setup" \
         -d username=e2e --data-urlencode "password=end to end test" --data-urlencode "password2=end to end test" "$C/admin/setup")"
     [ "$code" = 303 ] || fail "setup: $code"
     [ "$(curl -s -o /dev/null -w '%{http_code}' -b "$AJ" "$C/admin/")" = 200 ] || fail "not logged in after setup"
@@ -156,12 +164,15 @@ dc up -d --wait --wait-timeout 240 >"$WORK/up.log" 2>&1 || { cat "$WORK/up.log";
 for n in 1 2 3; do
     wait_for 60 "VM $n answers its Kali" shows "$n" "Join the CTF"
 done
-[ "$(kali_nojar 1 -o /dev/null -w '%{http_code}' --max-time 3 http://vm2/ctf/ || true)" = 000 ] || fail "Kali 1 reaches VM 2"
+[ "$(kali_nojar 1 -o /dev/null -w '%{http_code}' --max-time 3 http://vm2:8080/ctf/ || true)" = 000 ] || fail "Kali 1 reaches VM 2"
 ok "each Kali reaches only its own VM"
+[ "$(kali_nojar 1 -o /dev/null -w '%{http_code}' http://vm1/ctf/)" = 302 ] || fail "the shop's port serves the page"
+[ "$(kali_nojar 1 -o /dev/null -w '%{http_code}' -X POST http://vm1/ctf/forget)" = 404 ] || fail "the shop's port takes a form of the page"
+ok "the page is only on its own port"
 
 step "admin: setup and login"
 admin_setup
-ok "the first account made on the setup page; admin closed without it"
+ok "the first account made on the setup page, with the logged setup code; admin closed without it"
 
 step "games and joins"
 game "Game A"; A_ID=$GAME_ID; A_CODE=$GAME_CODE
@@ -188,7 +199,7 @@ curl -s "$C/g/game-b/chart.svg" | has '<polyline' || fail "no chart on board B"
 ok "pages: score on the VM, first blood and chart on the board"
 
 step "no cookies"
-kali_nojar 1 http://vm1/ctf/ | has "Anna" || fail "without cookies the page forgets the student"
+kali_nojar 1 http://vm1:8080/ctf/ | has "Anna" || fail "without cookies the page forgets the student"
 [ "$(kali_nojar 1 -o /dev/null -w '%{http_code}' 'http://vm1/juiceshop/rest/products/search?q=apple')" = 200 ] || fail "without cookies the shop is closed"
 ok "no cookie needed for the page or the shop"
 
@@ -204,9 +215,23 @@ for p in rest/continue-code/apply REST/Continue-Code/apply rest/continue-code-fi
     s="$(kali 2 -o /dev/null -w '%{http_code}' -X PUT "http://vm2/juiceshop/$p/$cc")"
     [ "$s" = 403 ] || fail "PUT $p on VM 2 answered $s"
 done
+# The spellings that once got past the check, with Juice Shop really behind.
+for p in /rest/continue-code/apply rest//continue-code/apply rest/continue-code-findIt//apply; do
+    s="$(kali 2 -o /dev/null -w '%{http_code}' -X PUT "http://vm2/juiceshop/$p/$cc")"
+    [ "$s" = 400 ] || fail "PUT $p on VM 2 answered $s"
+done
 sleep 6
 board_is game-a "Anna=200,Bram=100" || fail "VM 2 got points from VM 1's code: $(board game-a)"
-ok "refused in four spellings; VM 2 still has 100"
+ok "refused in seven spellings; VM 2 still has 100"
+
+step "a form from the shop's origin"
+# What script in the shop (an XSS) would send: the page's own token, but
+# from the shop's origin. Nothing may happen.
+s="$(kali 1 -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: same-site' -H 'Origin: http://vm1' \
+    --data-urlencode "csrf=$(csrf_of 1)" -d confirm=forget http://vm1:8080/ctf/forget)"
+[ "$s" = 403 ] || fail "Forget from the shop's origin answered $s"
+shows 1 "Anna" || fail "VM 1 forgot its student"
+ok "refused; VM 1 still knows Anna"
 
 step "forget"
 [ "$(post 2 /ctf/forget confirm=forget)" = 200 ] || fail "forget"

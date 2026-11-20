@@ -12,20 +12,23 @@
 // The DATABASE LEADS: games, join codes, scoring,
 // titles, the time zone and the event retention are made and changed in
 // /admin/ and live in the database. The environment says only where the
-// database is and where to listen — that is all it reads:
+// database is, where to listen and whom to believe — that is all it reads:
 //
-//	CTF_DB_PATH      default /data/central.db (on the ctf-central-db volume)
-//	CTF_ADDR         default :8080
-//	CTF_BASE_PATH    the path it is served under: default "", e.g. /juiceshop-ctf behind a proxy
-//	LOG_LEVEL        debug | info | warn | error
+//	CTF_DB_PATH          default /data/central.db (on the ctf-central-db volume)
+//	CTF_ADDR             default :8080
+//	CTF_BASE_PATH        the path it is served under: default "", e.g. /juiceshop-ctf behind a proxy
+//	CTF_TRUSTED_PROXIES  the peers whose X-Real-IP and X-Forwarded-Proto count: addresses and
+//	                     CIDRs, comma-separated; default loopback and the private ranges (a
+//	                     reverse proxy on this host or on a Docker network); "none" when the
+//	                     server is reached directly, without a proxy that sets X-Real-IP
+//	LOG_LEVEL            debug | info | warn | error
 //
 // 1.0's CTF_SEED, CTF_TITLE and CTF_TIMEZONE are gone; a CTF_SEED still in an
 // env file is logged and ignored, so an old env file cannot stop the server.
 //
 // /admin/ has accounts of its own (internal/central/auth.go). >>> A FRESH
-// DATABASE HAS NONE, and then <base>/admin/setup makes the first account
-// for whoever opens it first: open it yourself right after starting a new
-// server, or keep it behind an allow-list in the reverse proxy.
+// DATABASE HAS NONE: the server then logs a one-time setup code
+// (setup_code=…), and <base>/admin/setup asks for it to make the first one.
 package main
 
 import (
@@ -68,6 +71,11 @@ func main() {
 	}
 	log := httpx.NewLogger(env.String("LOG_LEVEL", "info"))
 	dbPath := env.String("CTF_DB_PATH", "/data/central.db")
+	proxies, err := httpx.ParseProxies(env.String("CTF_TRUSTED_PROXIES", httpx.DefaultTrustedProxies))
+	if err != nil {
+		log.Error("CTF_TRUSTED_PROXIES", "err", err)
+		os.Exit(2)
+	}
 	if _, set := os.LookupEnv("CTF_SEED"); set {
 		log.Warn("CTF_SEED is set but no longer used: games and join codes are made in /admin/ (1.1)")
 	}
@@ -78,7 +86,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer st.Close()
-	srv, err := central.New(central.Config{BasePath: base}, st, log)
+	srv, err := central.New(central.Config{BasePath: base, TrustedProxies: proxies}, st, log)
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		os.Exit(1)

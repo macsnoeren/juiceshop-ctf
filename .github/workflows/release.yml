@@ -29,7 +29,7 @@
 # Docker Hub access token with read/write). And, optionally, one repository
 # VARIABLE (same page, tab Variables): CENTRAL_URL, the central server the
 # released VM joins unless a student picks another on its page, e.g.
-# https://ctf.example.org. Without it the VM knows no central server and the
+# https://ctf.example.org (https only). Without it the VM knows no central server and the
 # student types the address on the page. It is not in this file on purpose:
 # where a class's central server runs is the operator's business, not the
 # repository's. A failed run leaves the release a draft: fix, delete the
@@ -48,8 +48,11 @@ on:
         description: 'Version to release: vMAJOR.MINOR.PATCH, e.g. v1.1.0 or v1.2.0-rc.1, with its section in CHANGELOG.md — tagged on the branch chosen above'
         required: true
 
+# Read-only by default; the three jobs that make, fill and publish the
+# release ask for write themselves. The test and docker jobs run the
+# repository's own scripts, and need no write access to it.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ inputs.version || github.ref_name }}
@@ -62,11 +65,13 @@ env:
 jobs:
   prepare:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the tag (manual run) and the draft release
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
@@ -80,8 +85,11 @@ jobs:
           bash scripts/release-notes.sh "$TAG" > notes.md
           # ctf-node refuses to start on a malformed default, and the VM
           # would then be useless: caught here, not after a 10-minute build.
-          if [ -n "$CENTRAL_URL" ] && ! [[ "$CENTRAL_URL" =~ ^https?://[^/?#@[:space:]]+(/[^?#[:space:]]*)?$ ]]; then
-            echo "::error title=CENTRAL_URL::the repository variable CENTRAL_URL is '$CENTRAL_URL': give http(s)://host[/path], or remove it"
+          # HTTPS ONLY: a released VM goes to a central server on the
+          # internet, and over plain http anyone on the way reads the join
+          # code and every token.
+          if [ -n "$CENTRAL_URL" ] && ! [[ "$CENTRAL_URL" =~ ^https://[^/?#@[:space:]]+(/[^?#[:space:]]*)?$ ]]; then
+            echo "::error title=CENTRAL_URL::the repository variable CENTRAL_URL is '$CENTRAL_URL': give https://host[/path], or remove it"
             exit 1
           fi
           prerelease=false
@@ -160,11 +168,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.tag }}
           fetch-depth: 0
-      - uses: actions/setup-go@v7
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
       - name: Unit tests (gofmt, vet, -race)
@@ -179,21 +188,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.tag }}
+          persist-credentials: false
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
         with:
           username: ${{ secrets.DH_USERNAME }}
           password: ${{ secrets.DH_PASSWORD }}
 
       - name: Tags
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: ${{ env.NAMESPACE }}/${{ env.CENTRAL_IMAGE }}
           # 1.1.0 and 1.1, and latest — the last two only for a release, not
@@ -205,7 +215,7 @@ jobs:
             latest=${{ needs.prepare.outputs.prerelease == 'false' }}
 
       - name: Build and push the central server
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: deploy/docker/Dockerfile.central
@@ -229,7 +239,7 @@ jobs:
           [ "$got" = "ctf-central $TAG" ] || { echo "::error::the image says '$got', not 'ctf-central $TAG'"; exit 1; }
 
       - name: Docker Hub description
-        uses: peter-evans/dockerhub-description@v5
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5
         with:
           username: ${{ secrets.DH_USERNAME }}
           password: ${{ secrets.DH_PASSWORD }}
@@ -240,11 +250,14 @@ jobs:
   vm:
     needs: [prepare, test]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the OVA and the zip on the draft release
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.tag }}
+          persist-credentials: false
 
       # GitHub's Linux runners have KVM, but /dev/kvm is not open to the
       # runner's user until this rule says so. Without it build.sh falls back
@@ -278,6 +291,8 @@ jobs:
   publish:
     needs: [prepare, docker, vm]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the draft release made public
     steps:
       - name: Publish the release
         env:

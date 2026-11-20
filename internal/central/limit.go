@@ -9,8 +9,14 @@ import (
 )
 
 // window counts events per key in fixed windows of one length. It is for
-// the join and login limits, where an exact sliding window buys nothing: the
-// point is that a guesser gets twenty tries a minute, not two thousand.
+// the join, login and event limits, where an exact sliding window buys
+// nothing: the point is that a guesser gets twenty tries a minute, not two
+// thousand.
+//
+// >>> Where the work between "may I?" and "count it" is slow (a password
+// hash), use Take, never Count followed by Add: requests sent in parallel
+// would all pass the Count before the first Add, and the limit would be
+// "twenty, plus however many fit in one hash time".
 type window struct {
 	mu   sync.Mutex
 	size time.Duration
@@ -54,4 +60,37 @@ func (w *window) Add(key string, now time.Time) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.get(key, now).n++
+}
+
+// Take counts one event for key if fewer than limit are counted in the
+// current window, in one step, and reports whether it did.
+func (w *window) Take(key string, now time.Time, limit int) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	b := w.get(key, now)
+	if b.n >= limit {
+		return false
+	}
+	b.n++
+	return true
+}
+
+// Release gives back one event taken in the current window, for an attempt
+// that turned out not to count (a login that succeeded).
+func (w *window) Release(key string, now time.Time) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if b := w.get(key, now); b.n > 0 {
+		b.n--
+	}
+}
+
+// Next counts one event for key and returns how many there are now in the
+// window, this one included.
+func (w *window) Next(key string, now time.Time) int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	b := w.get(key, now)
+	b.n++
+	return b.n
 }

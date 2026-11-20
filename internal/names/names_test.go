@@ -29,6 +29,14 @@ func TestNormalize(t *testing.T) {
 		{in: strings.Repeat("a", 41), err: ErrLength},
 		{in: strings.Repeat("a", 40), want: strings.Repeat("a", 40)},
 		{in: strings.Repeat("ë", 40), want: strings.Repeat("ë", 40)}, // runes, not bytes
+		// One script per name: a look-alike letter cannot pose as a classmate.
+		{in: "\u0410nna", err: ErrMixed},           // Cyrillic А + Latin nna
+		{in: "J\u043eh\u0430n", err: ErrMixed},     // Latin with Cyrillic о and а
+		{in: "\u0391lex", err: ErrMixed},           // Greek Α + Latin
+		{in: "Анна Петрова", want: "Анна Петрова"}, // all Cyrillic
+		{in: "Ελένη 2", want: "Ελένη 2"},           // all Greek, and a digit
+		{in: "山田 はなこ", want: "山田 はなこ"},             // Han with Hiragana, as Japanese is written
+		{in: "김민준", want: "김민준"},
 	}
 	for _, tt := range tests {
 		got, err := Normalize(tt.in)

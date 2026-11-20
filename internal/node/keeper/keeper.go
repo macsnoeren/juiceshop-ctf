@@ -26,14 +26,21 @@ const (
 )
 
 // The file descriptors ctf-node -serve inherits from the keeper.
+//
+// The keeper binds the page's port too, though 8080 needs no privilege:
+// bound before Juice Shop starts, it can never be taken by code running in
+// Juice Shop (its RCE challenges), which could otherwise serve a page of
+// its own there while ctf-node restarts and collect join codes.
 const (
-	ListenerFD = 3 // the listening socket of port 80
-	ControlFD  = 4 // the control pipe: "restart\n" → "ok\n" | "error …\n"
+	ListenerFD     = 3 // the listening socket of the shop, port 80
+	ControlFD      = 4 // the control pipe: "restart\n" → "ok\n" | "error …\n"
+	PageListenerFD = 5 // the listening socket of the student's page, port 8080
 )
 
 // Config is what the keeper needs.
 type Config struct {
-	Addr         string   // ":80"
+	Addr         string   // ":80", the shop
+	PageAddr     string   // ":8080", the student's page
 	JuiceShopEnv []string // BASE_PATH, SOLUTIONS_WEBHOOK, …
 	NodeEnv      []string // the environment ctf-node -serve gets
 	Log          *slog.Logger
@@ -51,17 +58,16 @@ func Run(ctx context.Context, cfg Config) int {
 		return 1
 	}
 	reaper := NewReaper()
-	ln, err := net.Listen("tcp", cfg.Addr)
+	lnFile, err := listen(cfg.Addr)
 	if err != nil {
 		log.Error("cannot listen", "addr", cfg.Addr, "err", err)
 		return 1
 	}
-	lnFile, err := ln.(*net.TCPListener).File()
+	pageFile, err := listen(cfg.PageAddr)
 	if err != nil {
-		log.Error("listener", "err", err)
+		log.Error("cannot listen", "addr", cfg.PageAddr, "err", err)
 		return 1
 	}
-	ln.Close() // the dup in lnFile stays open, for the child
 	pair, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC, 0)
 	if err != nil {
 		log.Error("socketpair", "err", err)
@@ -81,7 +87,7 @@ func Run(ctx context.Context, cfg Config) int {
 		log.Error("cannot find myself", "err", err)
 		return 1
 	}
-	node, nodeDone, err := reaper.Start(self, []string{"-serve"}, "/", cfg.NodeEnv, NodeUID, NodeUID, []*os.File{lnFile, theirs})
+	node, nodeDone, err := reaper.Start(self, []string{"-serve"}, "/", cfg.NodeEnv, NodeUID, NodeUID, []*os.File{lnFile, theirs, pageFile})
 	if err != nil {
 		log.Error("CANNOT START ctf-node AS UID 10001: the container needs the SETUID and SETGID capabilities (and nothing more)", "err", err)
 		stopJS()
@@ -90,6 +96,7 @@ func Run(ctx context.Context, cfg Config) int {
 	}
 	theirs.Close()
 	lnFile.Close()
+	pageFile.Close()
 	log.Info("keeper running", "juice_shop_uid", JuiceShopUID, "ctf_node_uid", NodeUID, "ctf_node_pid", node.Pid)
 
 	go serveControl(mine, sup, log)
@@ -212,4 +219,15 @@ func Capabilities() (string, error) {
 		}
 	}
 	return "", errors.New("no CapEff in /proc/self/status")
+}
+
+// listen binds addr and returns the socket as a file for a child; the
+// listener itself is closed, its dup in the file stays open.
+func listen(addr string) (*os.File, error) {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	defer ln.Close()
+	return ln.(*net.TCPListener).File()
 }

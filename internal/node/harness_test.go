@@ -242,7 +242,21 @@ func (h *harness) open(cfg Config) {
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	h.db, h.n, h.srv, h.h = db, n, srv, srv.Handler()
+	h.db, h.n, h.srv, h.h = db, n, srv, both(srv)
+}
+
+// both puts the page and the shop on one handler, FOR THE TESTS ONLY, which
+// ask for /ctf/ and /juiceshop/ alike. In the image they are two origins on
+// two ports, and must stay so (page.go says why).
+func both(srv *Server) http.Handler {
+	page, shop := srv.Page(), srv.Shop()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/juiceshop/") || strings.HasPrefix(r.URL.Path, "/assets/") {
+			shop.ServeHTTP(w, r)
+			return
+		}
+		page.ServeHTTP(w, r)
+	})
 }
 
 func (h *harness) poll() { h.n.Poll(context.Background()) }

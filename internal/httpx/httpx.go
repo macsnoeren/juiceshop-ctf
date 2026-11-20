@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Maurice Snoeren
 
-// Package httpx holds the small HTTP and logging helpers the three binaries
+// Package httpx holds the small HTTP and logging helpers both programs
 // share: one logger format, constant-time bearer checks, JSON responses, the
-// security headers on every page, and graceful server shutdown.
+// security headers on every page, the client address behind a trusted proxy
+// (proxies.go), form tokens (csrf.go), and graceful server shutdown.
 package httpx
 
 import (
@@ -15,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -90,19 +90,6 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Frame-Options", "DENY")
 		next.ServeHTTP(w, r)
 	})
-}
-
-// ClientIP is the address nginx put in X-Real-IP, or the peer address when
-// there is no nginx in front (tests, a laptop without the proxy).
-func ClientIP(r *http.Request) string {
-	if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
-		return ip
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }
 
 // Serve runs srv until ctx is cancelled, then shuts it down gracefully.
