@@ -58,7 +58,12 @@ When a file or package moves, also update: the `Makefile`,
 - Short and to the point: say WHY, and what breaks if the line changes. Not
   what the next line obviously does.
 - **Never cite a document, section, task, issue or decision** (`§4.3`,
-  `T1.1-31`, `see DESIGN.md`, `decision D5`). A comment must stand on its own.
+  `T1.1-31`, `see DESIGN.md`, `decision D5`, `docs/PROTOCOL.md is the
+  reference`). A comment must stand on its own. This holds for ALL code:
+  Go, shell, Dockerfiles, YAML, HCL, templates. The documents in `docs/`
+  point at the code, never the other way round. Only a path a program
+  actually uses is allowed (`CHANGELOG.md` read by the release script, the
+  Docker Hub readme, a link written into the release notes).
 - Every file starts with a comment that says what it is and what is unusual
   about it. Keep it true when you change the file.
 - Emphasis in CAPITALS; a warning starts with `>>>`.
@@ -83,6 +88,41 @@ When a file or package moves, also update: the `Makefile`,
   not fit. The same change is needed when the repository is renamed or moves.
 - Two direct dependencies (`modernc.org/sqlite`, `golang.org/x/text`). A third
   needs a good reason, written in the commit.
+
+## Security
+
+The students are being trained to attack, and this code is what they attack
+next to Juice Shop. [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) is the
+threat model: data flows, trust boundaries, threats and their defences; read it before a change that touches a request
+from outside, the proxy, a form, a token, a limit or a privilege.
+
+**Every change Claude writes gets a security check before it is committed
+or handed over**, however small:
+
+1. Run the `/security-review` skill on the pending changes, or, where it is
+   not available, review the diff against the threat model in
+   docs/THREAT-MODEL.md yourself, as an attacker would.
+2. Check at least, for what the diff touches:
+   - input from outside (HTTP, a report, the webhook, the environment) is
+     validated where it enters, and limited in size;
+   - every admin route is wrapped (`s.requireUser`, `s.action`), every form
+     carries a token and refuses another origin;
+   - a path, URL or name is checked in the form in which it is USED, not in
+     the form in which it came in;
+   - addresses come from `s.clientIP`, never from a header read by hand;
+   - a limit in front of slow work is taken (`window.Take`), not counted;
+   - no secret (token, join code, password, session) reaches a log line, an
+     event, an error message or a page it does not belong on;
+   - the page and the shop stay two origins; `-serve` gains no privilege;
+   - nothing a report says affects another participant;
+   - a new dependency, action or base image is pinned (SHA, digest).
+3. Say what the check found in the reply to the user: what was checked,
+   what was fixed, and anything left open. Never weaken a defence without
+   saying so plainly.
+4. A fixed weakness gets a test that fails when the defence is taken away,
+   under a `// ---- <behaviour> ----` heading; and docs/THREAT-MODEL.md is
+   updated when a threat or a defence changes. The code never refers to
+   the threat model (no threat ids, no "see THREAT-MODEL.md").
 
 ## License
 

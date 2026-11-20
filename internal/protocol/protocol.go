@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Maurice Snoeren
 
 // Package protocol is the language between ctf-node and ctf-central, version
-// 2 (docs/PROTOCOL.md is the reference).
+// 2.
 //
 // It is the ONE place this format is defined. Both programs compile against
 // it, so they cannot disagree about a field name.

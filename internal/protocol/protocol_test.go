@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// The examples of docs/PROTOCOL.md, as the programs
+// The documented examples of the wire format, as the programs
 // write them. If one of these stops round-tripping, a field was renamed, and
 // every VM in the field still sends the old name.
 var examples = map[string]struct {

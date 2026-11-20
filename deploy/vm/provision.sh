@@ -79,7 +79,7 @@ rc-service docker stop
 
 # ---- the console ----------------------------------------------------------------------
 # No address on the console on purpose: finding the VM from Kali is the
-# students' first task (docs/STUDENT.md).
+# students' first task.
 cat >/etc/issue <<EOF
 Juice Shop CTF ${VERSION}
 
