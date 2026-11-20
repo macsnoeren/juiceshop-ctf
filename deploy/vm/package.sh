@@ -10,7 +10,7 @@
 #   OUTDIR/juiceshop-ctf-VERSION-virtualbox.ova   File → Import Appliance
 #   OUTDIR/juiceshop-ctf-VERSION-vmware.zip       unzip, File → Open the .vmx
 #
-# Both describe the same machine (deploy/vm/README.md): 2 CPUs, 2 GB, the disk
+# Both describe the same machine: 1 CPU, 2 GB, the disk
 # on SATA, two Intel e1000 adapters — 1 on NAT, 2 on host-only — and BIOS.
 #
 # WHY TWO FORMATS AND NOT ONE OVA: an OVF can only name its networks, and
@@ -83,12 +83,12 @@ cat >"$vbox/$name.ovf" <<EOF
         <vssd:VirtualSystemType>virtualbox-2.2</vssd:VirtualSystemType>
       </System>
       <Item>
-        <rasd:Caption>2 virtual CPU</rasd:Caption>
+        <rasd:Caption>1 virtual CPU</rasd:Caption>
         <rasd:Description>Number of virtual CPUs</rasd:Description>
-        <rasd:ElementName>2 virtual CPU</rasd:ElementName>
+        <rasd:ElementName>1 virtual CPU</rasd:ElementName>
         <rasd:InstanceID>1</rasd:InstanceID>
         <rasd:ResourceType>3</rasd:ResourceType>
-        <rasd:VirtualQuantity>2</rasd:VirtualQuantity>
+        <rasd:VirtualQuantity>1</rasd:VirtualQuantity>
       </Item>
       <Item>
         <rasd:AllocationUnits>MegaBytes</rasd:AllocationUnits>
@@ -165,7 +165,7 @@ annotation = "Juice Shop CTF $version|0AAdapter 1 NAT, adapter 2 host-only (the 
 guestOS = "otherlinux-64"
 firmware = "bios"
 memsize = "2048"
-numvcpus = "2"
+numvcpus = "1"
 pciBridge0.present = "TRUE"
 pciBridge4.present = "TRUE"
 pciBridge4.virtualDev = "pcieRootPort"

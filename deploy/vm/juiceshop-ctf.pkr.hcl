@@ -96,7 +96,7 @@ source "qemu" "juiceshop-ctf" {
   disk_detect_zeroes = "unmap"
   net_device         = "virtio-net"
   memory             = 2048
-  cpus               = 2
+  cpus               = 1
   accelerator        = var.accelerator
   headless           = true
   qemuargs           = var.monitor == "" ? [] : [["-monitor", "unix:${var.monitor},server,nowait"]]

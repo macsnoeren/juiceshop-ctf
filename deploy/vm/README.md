@@ -24,7 +24,7 @@ builds the same files locally. One build gives both:
 | `dist/vm/juiceshop-ctf-<version>-vmware.zip` | VMware Workstation / Player 14+, Fusion (Intel) | unzip, *File → Open…* the `.vmx`, answer *I Copied It* |
 | `dist/vm/juiceshop-ctf-<version>.sha256` | checking a download | |
 
-The VM: Alpine Linux 3.24, 2 CPUs, 2 GB memory, an 8 GB growable disk on
+The VM: Alpine Linux 3.24, 1 CPU, 2 GB memory, an 8 GB growable disk on
 SATA (about 1 GB used), BIOS, two Intel e1000 adapters, **no login** (no SSH,
 root locked) and nothing of any student in it. It has never joined a game:
 the `juiceshop-ctf` container and its `node.db` are made at the first boot

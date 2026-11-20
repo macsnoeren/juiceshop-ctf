@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
+
+The first refactored version of the OWASP Juice Shop CTF approach. Improved
+the structure of the repository and added the GPLv3 license to the project.
+Added CLAUDE.md when performing augmented AI programming of this software.
 
 **Security** (docs/THREAT-MODEL.md describes the whole picture)
 - The VM's proxy no longer lets a continue code through with an extra slash
@@ -77,11 +81,8 @@
   told "joining this game is closed; ask your teacher" (a 409, which VMs
   already out there show as it is).
 
-## 1.2.0
-
-The first refactored version of the OWASP Juice Shop CTF approach. Improved
-the structure of the repository and added the GPLv3 license to the project.
-Added CLAUDE.md when performing augmented AI programming of this software.
+**The VM**
+- The VM has 1 CPU instead of 2 (still 2 GB memory).
 
 ## 1.1.0
 
