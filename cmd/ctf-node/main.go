@@ -17,6 +17,10 @@
 // /usr/share/zoneinfo, and leaving it out keeps the image within 20 MB of
 // Juice Shop's own.
 //
+// The keeper starts Juice Shop with an environment of its own, not the
+// container's: NODE_ENV=unsafe among it, which turns Juice Shop's safety
+// mode off, so the challenges it disables in Docker can be played too.
+//
 // Started as a normal user (outside the image, for development) it runs
 // -serve directly on CTF_ADDR and CTF_PAGE_ADDR, against a Juice Shop it
 // does not supervise.
@@ -113,6 +117,16 @@ func main() {
 				// proxy strips the prefix on the way in.
 				"BASE_PATH=/juiceshop",
 				"SOLUTIONS_WEBHOOK=http://" + webhookAddr + "/webhook",
+				// >>> UNSAFE MODE, ON PURPOSE: Juice Shop's config/unsafe.yml
+				// sets challenges.safetyMode to "disabled". Without it Juice
+				// Shop sees it runs in Docker and switches off 18 challenges
+				// (XXE, SSTi, RCE, file write, several XSS: the Danger Zone),
+				// and ctf-central, which counts every challenge, would show
+				// them as unsolvable. Some of them give REAL code execution as
+				// 65532: what keeps that away from ctf-node is the uids, not
+				// this line. This list is the WHOLE environment Juice Shop
+				// gets, so a NODE_ENV set on the container never reaches it.
+				"NODE_ENV=unsafe",
 			},
 			NodeEnv: append(passThrough(), "CTF_KEEPER=1"),
 		}))
@@ -239,7 +253,10 @@ func runServe(ctx context.Context, stop func(), env *config.Env, addr, pageAddr 
 	} else if count >= 0 {
 		log.Info("imported a 1.0 state: solves and continue codes, not the registration", "solves", count)
 	}
-	srv, err := node.NewServer(n, node.PageConfig{Location: loc, JuiceShop: node.NewProxy(target, log), ShopPort: shopPort, PagePort: pagePort})
+	// RefuseLocal under the keeper: there Juice Shop, which runs the
+	// students' code, shares this network namespace.
+	srv, err := node.NewServer(n, node.PageConfig{Location: loc, JuiceShop: node.NewProxy(target, log), ShopPort: shopPort, PagePort: pagePort,
+		RefuseLocal: underKeeper})
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 1

@@ -112,7 +112,8 @@ attacked, how each attack is met, and what is left to you.
 | "Joining this game is closed; ask your teacher" | you closed joining | *Open joining again*, and close it after they are in |
 | "Waiting for the central server" | the VM cannot reach the central server (NAT adapter, network) | nothing: they play on, the join and every solve arrive when it can |
 | "Join again" with a message | the central server no longer knows the VM's token (game deleted) | they join again; their solves on the VM are kept |
-| The shop is broken | they broke it (there is a DoS challenge) | *Restart Juice Shop* on their CTF page: the progress comes back |
+| The shop is broken or hangs | they broke it (several challenges do: RCE DoS, XXE DoS, Memory Bomb, file write) | *Restart Juice Shop* on their CTF page: the progress comes back |
+| A challenge with a chatbot or a wallet does not work | it needs an LLM or an Alchemy API key the VM does not have | nothing: these six cannot be solved on the VM |
 | They want to start over / hand the VM on | — | *Forget* on their CTF page (they type `forget`) |
 
 ### Flags
@@ -123,8 +124,11 @@ can fake a report; flags show what an honest VM never
 sends.
 
 **The board is a game, not an exam.** A student owns their VM: with the
-VM's disk, or with code execution in Juice Shop (some challenges give it),
-they can send any solve they like, and a careful one raises no flag. Nothing
+VM's disk, or with code execution in Juice Shop (SSTi gives it), they can
+send any solve they like, and a careful one raises no flag. A student with
+SSTi can, for example, apply a classmate's continue code from inside Juice
+Shop, where the VM's proxy does not see it; a code with more than five
+solves in it shows as `burst`. Nothing
 on a VM the student controls can prevent that. Do not grade on points
 alone: ask for a short write-up of a few solves, or have a student show one
 in class.
@@ -184,6 +188,65 @@ Before deleting, *Export CSV* on the game page keeps the results.
 - **A new version** is a new image to import: there is no path from the central
   server into thirty VirtualBoxes (`make vm` again). The game page shows each VM's version, and a 1.0 VM
   that still reports shows up in the feed as `legacy`.
+
+### Every challenge is on: Juice Shop's unsafe mode
+
+Juice Shop knows when it runs in Docker, and then switches off the
+challenges that are dangerous for the machine it runs on. The VM is a
+throwaway machine for one student, so the VM starts Juice Shop with
+`NODE_ENV=unsafe`: Juice Shop then loads its own `config/unsafe.yml`, which
+sets `challenges.safetyMode: disabled`, and **all 116 challenges** of Juice
+Shop 20.3.0 are on. ctf-node sets this itself, in the environment it starts
+Juice Shop with (`cmd/ctf-node/main.go`). A `NODE_ENV` set on the container
+does nothing, and there is nothing to configure.
+
+These 18 are playable because of it, and count on the board like any other:
+
+| Category | Challenges |
+|----------|------------|
+| XSS | Reflected XSS (2★), API-only XSS (3★), Client-side XSS Protection (3★), CSP Bypass (4★), HTTP-Header XSS (4★), Server-side XSS Protection (4★), Video XSS (6★) |
+| Injection | NoSQL DoS (4★), NoSQL Exfiltration (5★), SSTi (6★) |
+| XXE | XXE Data Access (3★), XXE DoS (5★) |
+| Insecure Deserialization | Blocked RCE DoS (5★), Memory Bomb (5★), Successful RCE DoS (6★) |
+| Vulnerable Components | Local File Read (5★), Arbitrary File Write (6★) |
+| Security Misconfiguration | Deprecated Interface (2★) |
+
+What it means for you:
+
+- **Students get real code execution in Juice Shop** (SSTi), can read and
+  write its files, and can make it hang or run out of memory. That is
+  contained: Juice Shop runs as its own user, without privileges, and cannot
+  read the VM's `node.db`, stop ctf-node or take the CTF page's port. A shop
+  that hangs comes back with *Restart Juice Shop*, with its progress.
+- **The board counts all 116.** A VM of 1.2.0 or older runs Juice Shop in its
+  safe mode and cannot solve these 18: a class with old VMs sees them on the
+  board but never solved, and the totals ("x of 116") of games played before
+  now count them too. Hand out the new VM.
+- **Six challenges still cannot be solved**, unsafe mode or not, because
+  they need a service the VM does not have, and a key in the VM would be
+  every student's: *Mint the Honey Pot* and *Wallet Depletion* (an Alchemy
+  API key) and the four that need an AI chatbot, *Chatbot Prompt Injection*,
+  *Greedy Chatbot Manipulation*, *AI Debugging* and *System Prompt
+  Extraction* (an LLM at `localhost:11434`). They stay on the board.
+- The Juice Shop image has no shell. The usual SSTi payload, which runs
+  `wget` with `child_process.exec`, does nothing, but the challenge is solved
+  by any code Juice Shop evaluates.
+
+### Starting, stopping, resetting
+
+The VM has no login; all of it goes through the hypervisor and the
+student's CTF page.
+
+| To | Do |
+|----|----|
+| start / stop | start or shut down the VM. The container starts with the VM and after a crash; the progress is kept |
+| a shop that hangs or is broken | *Restart Juice Shop* on the CTF page (or restart the VM): the progress comes back |
+| start over | *Forget* on the CTF page: everything about the student is wiped, Juice Shop starts empty |
+| a VM that is beyond repair | delete it and import the OVA again: a new VM that has never joined; the student joins again |
+| a new version | `make vm` (deploy/vm/README.md), and every student imports it |
+
+In the test setup on your own machine: `make run`, `make stop`, and
+`deploy/compose/stop.sh --wipe` to throw away every game and VM.
 
 ## 5. Trying it without a class
 

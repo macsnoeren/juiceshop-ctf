@@ -102,9 +102,13 @@ directly. It logs that *Restart Juice Shop* is then unavailable. For the solves
 it needs a Juice Shop on `JUICESHOP_URL`. For example:
 
 ```sh
-docker run --rm --network host -e BASE_PATH=/juiceshop \
+docker run --rm --network host -e BASE_PATH=/juiceshop -e NODE_ENV=unsafe \
   -e SOLUTIONS_WEBHOOK=http://127.0.0.1:8081/webhook bkimminich/juice-shop:v20.3.0
 ```
+
+`NODE_ENV=unsafe` is what the keeper gives Juice Shop in the image: its
+safety mode off, so every challenge is on. Leave it out and Juice Shop
+disables 18 of them, which the page then leaves out of its counts.
 
 The webhook listener is always `127.0.0.1:8081`. Each `main.go` documents
 every environment variable it reads at the top of the file. Nothing in either
@@ -253,6 +257,23 @@ noticing. Each one has a reason in the code next to it.
   :8080.
 - `node.db` has its own migrations (in `store.go`), with the same rule:
   append only.
+- **Juice Shop runs with its safety mode off.** The keeper starts it with
+  `NODE_ENV=unsafe` (`JuiceShopEnv` in `cmd/ctf-node/main.go`), so the 18
+  challenges it disables in Docker are on, and ctf-central counts every
+  challenge of its catalogue. That list is Juice Shop's WHOLE environment: a
+  `NODE_ENV` on the container never reaches it. Some of those challenges
+  give the student real code execution as 65532 (SSTi evaluates their
+  code), so every rule about 65532 above is about an attacker who is
+  already there. `scripts/image.sh` checks that no challenge is disabled,
+  also after a respawn.
+- **The page answers nothing to the VM itself** (`RefuseLocal`, on under
+  the keeper): code in Juice Shop shares the network namespace, could read
+  the form token from `/ctf/` and send no `Origin`. Only `/ctf/healthz`
+  answers from loopback, for the healthcheck. With the gate on, the proxy
+  takes `ctf_node_session` out of every request to Juice Shop, which could
+  otherwise read and pass it on. `scripts/image.sh` tries both ways in as
+  65532. Running ctf-node outside the image, with a browser on localhost,
+  the check is off.
 
 **The web pages**
 - **No inline script or style anywhere.** The Content-Security-Policy in
@@ -390,6 +411,10 @@ every step.
 2. Change the `FROM` tag in `deploy/docker/Dockerfile.node`, with its new
    digest (`docker buildx imagetools inspect bkimminich/juice-shop:<tag>`;
    Dependabot leaves this image alone on purpose), and `CatalogueVersion`.
+   Check that the new version's `config/unsafe.yml` still turns the safety
+   mode off (20.3.0: `challenges.safetyMode: disabled`; it has no
+   `safetyOverride`, the key older guides name), and which challenges it
+   disables without it: the table in OPERATIONS.md §4 lists them.
 3. Run `make test`; a failing client test shows what Juice Shop changed.
 4. Run `bash scripts/image.sh` (users, size, respawn) and `make e2e`.
 5. Look at the new Juice Shop next to the board: if its theme changed, the

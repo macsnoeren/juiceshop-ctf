@@ -9,8 +9,10 @@ import (
 	"html/template"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/httpx"
@@ -50,6 +52,12 @@ import (
 // every cookie — which Juice Shop's challenges make students do — changes
 // nothing. Every POST carries a form token, and is refused when the browser
 // says it came from another origin (Sec-Fetch-Site, Origin).
+//
+// >>> NOT ONLY BROWSERS: Juice Shop runs the students' code (SSTi) in this
+// container's network namespace, where it can reach the page and send any
+// header it likes. In the image the page therefore answers nothing from
+// this machine itself (RefuseLocal), and the gate's cookie is taken out of
+// every request before Juice Shop sees it.
 
 const (
 	sessionCookie = "ctf_node_session"
@@ -74,6 +82,14 @@ type PageConfig struct {
 	// the page (80 and 8080), for the links between the two. They differ
 	// from the ports listened on only behind a port mapping.
 	ShopPort, PagePort int
+	// RefuseLocal: the page answers nothing but /ctf/healthz to the machine
+	// it runs on (loopback, or one of its own addresses). Set in the image,
+	// where Juice Shop shares the network namespace and runs the students'
+	// code (SSTi): without it that code reads the form token from /ctf/
+	// and presses Forget, sending no Origin, so a classmate's link to the
+	// shop's XSS could wipe the VM. A browser always comes from elsewhere.
+	// Off for development, where the browser is on localhost.
+	RefuseLocal bool
 }
 
 // Server is the VM's web server.
@@ -158,7 +174,47 @@ func (s *Server) Page() http.Handler {
 	mux.HandleFunc("POST /ctf/forget", s.form(s.handleForget))
 	mux.HandleFunc("POST /ctf/central", s.form(s.handleCentral))
 	mux.HandleFunc("POST /ctf/enter", s.form(s.handleEnter))
-	return httpx.SecurityHeaders(mux)
+	h := httpx.SecurityHeaders(mux)
+	if !s.cfg.RefuseLocal {
+		return h
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The exact path only: any other spelling is refused, never cleaned up.
+		if r.URL.Path != "/ctf/healthz" && fromThisMachine(r.RemoteAddr) {
+			http.Error(w, "the CTF page does not answer the VM itself", http.StatusForbidden)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+// fromThisMachine reports whether a connection came from loopback or from
+// one of this network namespace's own addresses: the only source addresses
+// a process inside it (Juice Shop) can use. When in doubt it says yes.
+//
+// "Own" is tested by binding a UDP socket to the address: Linux refuses an
+// address that is not this machine's (EADDRNOTAVAIL), and only a process
+// with CAP_NET_ADMIN could change that (ip_nonlocal_bind). Listing the
+// interfaces would say the same, but costs 8 KB of the image's budget.
+func fromThisMachine(remote string) bool {
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		return true
+	}
+	a, err := netip.ParseAddr(host)
+	if err != nil {
+		return true
+	}
+	a = a.Unmap()
+	if a.IsLoopback() || a.IsUnspecified() {
+		return true
+	}
+	c, err := net.ListenPacket("udp", netip.AddrPortFrom(a, 0).String())
+	if err == nil {
+		c.Close()
+		return true
+	}
+	return !errors.Is(err, syscall.EADDRNOTAVAIL)
 }
 
 // Shop returns every route of the shop's port: Juice Shop, and a way to
@@ -191,8 +247,31 @@ func (s *Server) gated(h http.Handler) http.Handler {
 			http.Redirect(w, r, s.pageURL(r), http.StatusFound)
 			return
 		}
+		// >>> The session is the page's, never Juice Shop's: code in Juice
+		// Shop (SSTi) reads every header it gets, and could hand the cookie
+		// to a classmate who reaches this VM's page.
+		dropCookie(r, sessionCookie)
 		h.ServeHTTP(w, r)
 	})
+}
+
+// dropCookie takes one cookie out of a request and leaves the others exactly
+// as they came: Juice Shop's cookies (some of which students tamper with)
+// must not be re-encoded on the way.
+func dropCookie(r *http.Request, name string) {
+	var kept []string
+	for _, line := range r.Header.Values("Cookie") {
+		for _, part := range strings.Split(line, ";") {
+			k, _, _ := strings.Cut(part, "=")
+			if strings.TrimSpace(k) != name && strings.TrimSpace(part) != "" {
+				kept = append(kept, strings.TrimSpace(part))
+			}
+		}
+	}
+	r.Header.Del("Cookie")
+	if len(kept) > 0 {
+		r.Header.Set("Cookie", strings.Join(kept, "; "))
+	}
 }
 
 func (s *Server) hasSession(r *http.Request) bool {

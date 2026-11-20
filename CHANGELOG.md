@@ -45,6 +45,24 @@
   `coding` column) show them; so does the student's page on the VM. A VM
   without this sends none, and a central server without it ignores them.
 
+**Every challenge is on**
+- The VM runs Juice Shop in its **unsafe mode** (`NODE_ENV=unsafe`, which
+  sets `challenges.safetyMode: disabled`): the 18 challenges Juice Shop
+  switches off in Docker can now be played, among them XXE, SSTi, the RCE
+  DoS challenges, Local File Read, Arbitrary File Write and seven XSS
+  challenges. ctf-node sets it when it starts Juice Shop; nothing to
+  configure.
+- The board counts all 116 challenges, also in games played before. A VM of
+  1.2.0 or older cannot solve those 18, so hand out the new VM.
+- Students now get real code execution in Juice Shop (SSTi). It stays
+  inside Juice Shop's own user: ctf-node, `node.db` and the CTF page are
+  out of its reach, checked with unsafe mode on. The CTF page now answers
+  nothing to the VM itself (except its healthcheck), so code in Juice Shop
+  cannot press *Forget*, not even when a classmate's link sets it off, and
+  the gate's cookie no longer reaches Juice Shop.
+- Six challenges still cannot be solved on the VM: the two that need an
+  Alchemy API key and the four that need an AI chatbot (an LLM).
+
 **Central server**
 - *Beamer with join code* on a game's admin page: the board full screen with
   the join code above it, so the classroom needs one screen. The code shows

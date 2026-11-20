@@ -43,7 +43,7 @@ server shows who solved what. Worth protecting, in order:
 
 | Actor | Trust | Reach |
 |-------|-------|-------|
-| **Student**, on their own VM | untrusted for A1, trusted for their own A2 | full control of the VM: console, disk, hypervisor; Kali on the host-only network; code execution in Juice Shop through its challenges |
+| **Student**, on their own VM | untrusted for A1, trusted for their own A2 | full control of the VM: console, disk, hypervisor; Kali on the host-only network; code execution in Juice Shop as uid 65532, for real: Juice Shop runs with its safety mode off, so SSTi evaluates their code and file write and read work |
 | **Classmate** | untrusted | can send links and messages; on a misconfigured lab network, reaches other VMs |
 | **Internet** | untrusted | ctf-central's public endpoints |
 | **Network attacker** (school Wi-Fi, LAN) | untrusted | the traffic between VMs and ctf-central |
@@ -115,6 +115,10 @@ server shows who solved what. Worth protecting, in order:
 - Juice Shop 20.3.0 matches its routes on the encoded path, case
   insensitively, and its continue-code apply routes are the three under
   `/rest/continue-code*/apply`.
+- Juice Shop runs with `NODE_ENV=unsafe` (its safety mode off), set by the
+  keeper in the environment it starts Juice Shop with. Every defence of TB3
+  is meant to hold against code a student runs as 65532; none relies on
+  Juice Shop keeping its dangerous challenges off.
 - Nobody but the operator reads ctf-central's log.
 
 ### Out of scope
@@ -143,11 +147,11 @@ risk that remains with the mitigations of section 3 in place (H, M, L).
 
 | Id | Threat | Element | CWE | L | I | R |
 |----|--------|---------|-----|---|---|---|
-| T1 | A student applies a continue code (a classmate's, or one made by hand) through the proxy and gets every challenge in it | DF3 | CWE-284, CWE-180 | H | H | L |
-| T2 | Script in the shop (Juice Shop's XSS, set off by a classmate's link) presses *Forget* or changes the central server on the page | TB2 | CWE-352, CWE-346 | M | H | L |
+| T1 | A student applies a continue code (a classmate's, or one made by hand) and gets every challenge in it: through the proxy, or from inside Juice Shop with code execution (SSTi), past the proxy | DF3 | CWE-284, CWE-180 | H | H | L (proxy) / **M, accepted (from inside)** |
+| T2 | Script in the shop (Juice Shop's XSS, set off by a classmate's link) presses *Forget* or changes the central server on the page: in the browser, or by going on to SSTi, whose code runs inside the VM and sends no Origin | TB2 | CWE-352, CWE-346 | M | H | L |
 | T3 | A page on another site (or a sibling subdomain that can set cookies) makes an admin's browser post an admin form | DF7 | CWE-352 | L | H | L |
 | T4 | A report changes another participant's score, solves or state | DF6 | CWE-639 | M | H | L |
-| T5 | Code in Juice Shop (uid 65532) reads or changes `node.db`, signals ctf-node, or takes the page's port | TB3 | CWE-269 | M | H | L |
+| T5 | Code in Juice Shop (uid 65532) reads or changes `node.db`, signals ctf-node, or takes the page's port | TB3 | CWE-269 | H | H | L |
 | T6 | Code in Juice Shop posts a cheat score of 0 for every challenge first, to hide the real one | DF4 | CWE-345 | M | L | L |
 | T7 | SQL, HTML or spreadsheet formulas injected through a name, a report or a header | DF6, DF8 | CWE-89, CWE-79, CWE-1236 | M | H | L |
 | T8 | A moved tag of an action or a base image changes what a release is built with | TB6 | CWE-829 | L | H | L |
@@ -175,14 +179,14 @@ risk that remains with the mitigations of section 3 in place (H, M, L).
 | D1 | Login attempts in parallel keep the CPU busy with password hashes, or slip past the limits | DF7 | CWE-307, CWE-400 | M | M | L |
 | D2 | Requests without a token or login flood the event feed and the database | DF6, DF7 | CWE-400 | M | M | L |
 | D3 | Ten wrong passwords pause the login of an admin's username for 15 minutes | DF7 | CWE-645 | M | L | **L, accepted** |
-| D4 | A student breaks their own Juice Shop (there is a challenge for it) | DF3 | — | H | L | **L, accepted** |
+| D4 | A student breaks their own Juice Shop or makes it hang (RCE DoS, XXE DoS, Memory Bomb, file write, or their own code through SSTi) | DF3 | — | H | L | **L, accepted** |
 | D5 | A classmate reaches another VM on a misconfigured network and presses *Forget* or *Restart* | TB1 | CWE-306 | L | H | L (adapter 1 bridged) / **M (adapter 2 bridged)** |
 
 ### Elevation of privilege
 
 | Id | Threat | Element | CWE | L | I | R |
 |----|--------|---------|-----|---|---|---|
-| E1 | Code execution in Juice Shop becomes root in the container, or ctf-node's privileges | TB3 | CWE-250 | M | H | L |
+| E1 | Code execution in Juice Shop becomes root in the container, or ctf-node's privileges | TB3 | CWE-250 | H | H | L |
 | E2 | An admin route without a login, reachable by anybody | central | CWE-306 | L | H | L |
 | E3 | A redirect after login sends the admin to another site | DF7 | CWE-601 | L | L | L |
 | E4 | A workflow job with write access runs code it did not need to | TB6 | CWE-250 | L | H | L |
@@ -199,8 +203,8 @@ risk that remains with the mitigations of section 3 in place (H, M, L).
 | S4 | The first account needs a one-time setup code that the server logs at its start; wrong codes count against the login limit. | `internal/central/auth.go` |
 | S5 | A VM refuses `http://` to a host on the internet; plain HTTP only to localhost, a name without a dot or a private address, with a warning on the page. A release needs an `https://` `CENTRAL_URL`. | `internal/node/node.go`, `.github/workflows/release.yml` |
 | S6 | The central server can only be changed on the page, before joining, with a form token and an origin check (see T2). | `internal/node/page.go` |
-| T1 | The proxy refuses the three continue-code apply routes, checked on the path as Juice Shop receives it (decoded and raw). A path with `//` or a `.`/`..` segment is refused, not repaired, so the checked path is the sent path. | `internal/node/proxy.go` |
-| T2 | The shop on :80 and the page on :8080: two origins. Form tokens are HMACs under a key in memory, not cookies (which ignore ports). A form from another origin (`Sec-Fetch-Site`, `Origin`) is refused. | `internal/node/page.go`, `internal/httpx/csrf.go` |
+| T1 | The proxy refuses the three continue-code apply routes, checked on the path as Juice Shop receives it (decoded and raw). A path with `//` or a `.`/`..` segment is refused, not repaired, so the checked path is the sent path. From inside Juice Shop the proxy is not in the way: there the `burst` flag is what remains (section 4). | `internal/node/proxy.go` |
+| T2 | The shop on :80 and the page on :8080: two origins. Form tokens are HMACs under a key in memory, not cookies (which ignore ports). A form from another origin (`Sec-Fetch-Site`, `Origin`) is refused. In the image the page answers nothing to the VM itself (loopback or its own addresses, the only ones Juice Shop's code can send from) but the healthcheck, so code in Juice Shop can neither read a form token nor post one. The gate's session cookie is taken out of every request before it reaches Juice Shop. | `internal/node/page.go`, `internal/httpx/csrf.go` |
 | T3 | Admin form tokens are HMACs bound to the session's hash; a form from another site (`Sec-Fetch-Site`) is refused; cookies are `SameSite`, `HttpOnly`, `Secure` behind HTTPS. | `internal/central/admin.go`, `internal/httpx/csrf.go` |
 | T4 | A report is about the one participant its token's hash names; nothing in it touches another. | `internal/central/store/report.go` |
 | T5 | ctf-node runs as 10001 without capabilities and refuses to start with any; `node.db` is 0600 in a 0700 directory. The keeper takes one command over a socketpair and binds both ports before Juice Shop starts. | `internal/node/keeper/`, `cmd/ctf-node/main.go` |
@@ -216,7 +220,7 @@ risk that remains with the mitigations of section 3 in place (H, M, L).
 | D1 | Login limits per address and per username are TAKEN before the hash (atomic), and at most four hashes run at once. | `internal/central/limit.go`, `internal/central/auth.go` |
 | D2 | Events caused by requests from anybody: at most 30 per address per minute; events expire after the retention. Body sizes are limited. | `internal/central/server.go` |
 | D3 | **Accepted**: the lockout ends 15 minutes after the last try; other admins are not affected. | — |
-| D4 | **Accepted**: *Restart Juice Shop* on the page, and the keeper restarts a Juice Shop that died; the progress comes back from the continue codes. | `internal/node/keeper/supervisor.go` |
+| D4 | **Accepted**: *Restart Juice Shop* on the page (also for a shop that hangs), and the keeper restarts a Juice Shop that died, in unsafe mode again; the progress comes back from the continue codes. | `internal/node/keeper/supervisor.go` |
 | D5 | The VM drops new connections from eth0 (NAT) to both ports; the optional gate (`CTF_GATE=session`) for VMs that others can reach. Adapter 2 bridged stays the operator's to prevent. | `deploy/vm/files/juiceshop-ctf.initd`, `internal/node/page.go` |
 | E1 | The keeper holds SETUID and SETGID only, `no-new-privileges` is set, Juice Shop and ctf-node run as different users without capabilities. | `internal/node/keeper/`, `deploy/vm/files/juiceshop-ctf.initd` |
 | E2 | Every admin route is wrapped (`requireUser` for GET, `action` for POST). | `internal/central/admin.go`, `internal/central/auth.go` |
@@ -233,6 +237,18 @@ risk that remains with the mitigations of section 3 in place (H, M, L).
 - **Script in a student's own shop** (Juice Shop's XSS) can change the shop.
   That is the exercise. It cannot reach the page (T2).
 - **D3**, a paused login, and **D4**, a broken shop.
+- **T1 from inside Juice Shop.** With its safety mode off, SSTi evaluates
+  the student's code as 65532 in Juice Shop's own process, which can call
+  Juice Shop's continue-code apply on loopback, where the proxy is not in
+  the way. That is S1 again, reached through a 6★ challenge instead of the
+  VM's disk: a copied code with more than five solves raises `burst`, a
+  careful one nothing. A classmate can set this off too, with a link that
+  takes the victim's browser through the shop's XSS to SSTi: the victim
+  then gets solves they did not make, and a flag. Nothing is lost (the
+  page cannot be reached from there, so no *Forget*), and the operator
+  sees the flag. Turning the safety mode back on would take 18
+  challenges from every student to close a path the disk leaves open
+  anyway.
 - **Plain HTTP on a private network (S5)**, accepted with a warning, for labs
   without certificates.
 - **A name entirely in a look-alike script (S2)** passes the one-script rule.
@@ -246,10 +262,10 @@ risk that remains with the mitigations of section 3 in place (H, M, L).
 | Threats | Checked by |
 |---------|------------|
 | T1 | `TestProxyRefusesContinueCodes`, `TestProxyRefusesPathsThatWouldChangeOnTheWay`; `scripts/image.sh` and `scripts/e2e.sh` against the real Juice Shop |
-| T2, S6 | `TestThePageIsNotServedOnTheShopsPort`, `TestFormsFromAnotherOriginAreRefused`; the "a form from the shop's origin" step of `scripts/e2e.sh` |
+| T2, S6 | `TestThePageIsNotServedOnTheShopsPort`, `TestFormsFromAnotherOriginAreRefused`, `TestThePageRefusesTheVMItself`, `TestTheGatesCookieDoesNotReachJuiceShop`; the "a form from the shop's origin" step of `scripts/e2e.sh`; the isolation step of `scripts/image.sh` (the page answers 65532 with 403) |
 | T3 | `TestCSRFIsBoundToTheSession`, `TestCSRF`, `TestCrossOrigin` |
 | T4, S1 | the store tests in `internal/central/store/store_test.go` (`TestForgetReachesOnlyThatParticipant`, `TestFlags`, `TestHonestPlayRaisesNoFlag`); the "no false flags" step of `scripts/e2e.sh` |
-| T5, E1 | `scripts/image.sh`: uids, capabilities, `node.db` unreadable and the page's port not takeable as 65532, the keeper refusing without SETUID/SETGID |
+| T5, E1 | `scripts/image.sh`, with Juice Shop in unsafe mode as on the VM (its `unsafe` step checks that, also after a respawn): uids, capabilities, `node.db` unreadable and the page's port not takeable as 65532, the keeper refusing without SETUID/SETGID |
 | T6 | `TestWebhookKeepsTheHighestCheatScore`, `TestTheHighestCheatScoreIsKept` |
 | S2 | `TestNormalize` |
 | S3 | `TestClientIP`, `TestSecure`, `TestClientAddress` |
@@ -266,8 +282,8 @@ risk that remains with the mitigations of section 3 in place (H, M, L).
 - when a request from outside, a form, a token, a limit or a privilege
   changes, or a new endpoint, port or data store is added;
 - when the protocol between VM and central server changes;
-- when Juice Shop is upgraded: its routes, its continue-code apply and its
-  route matching are assumptions here;
+- when Juice Shop is upgraded: its routes, its continue-code apply, its
+  route matching and what its unsafe mode turns on are assumptions here;
 - when a dependency, an action or a base image is added;
 - after any security report.
 

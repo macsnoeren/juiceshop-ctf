@@ -19,7 +19,8 @@ import (
 //
 //   - on the board: participants who have not left and are not hidden;
 //   - a solve scores when it was counted (received while the game accepted
-//     solves) and its challenge is not disabled in Docker;
+//     solves) and its challenge is not disabled (none of the catalogue is:
+//     the VM runs Juice Shop with its safety mode off);
 //   - rank by score; equal scores by WHEN the score was reached — the
 //     receipt of the last scoring solve, or the join for 0 — first there is
 //     ahead; equal score at the same moment is the same rank;

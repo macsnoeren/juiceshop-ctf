@@ -114,6 +114,24 @@ func TestChallenges(t *testing.T) {
 	}
 }
 
+// ---- any reason Juice Shop names disables a challenge ----
+
+// Juice Shop 20.3.0 names why it disables a challenge: "Docker", "Heroku",
+// "Windows" or, with its safety mode on, "Safety Mode". Each means it cannot
+// be solved there; null (safety mode off, as on the VM) means it can.
+func TestDisabledForAnyReason(t *testing.T) {
+	for _, tc := range []struct {
+		env  *string
+		want bool
+	}{{nil, false}, {strp(""), false}, {strp("Docker"), true}, {strp("Windows"), true}, {strp("Safety Mode"), true}} {
+		if got := (Challenge{DisabledEnv: tc.env}).Disabled(); got != tc.want {
+			t.Errorf("disabledEnv %v: Disabled() = %v, want %v", tc.env, got, tc.want)
+		}
+	}
+}
+
+func strp(s string) *string { return &s }
+
 func TestVersionAndCodes(t *testing.T) {
 	srv := httptest.NewServer(&fakeShop{t: t})
 	defer srv.Close()

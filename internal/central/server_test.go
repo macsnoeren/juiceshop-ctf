@@ -753,14 +753,14 @@ func TestEveryLinkResolves(t *testing.T) {
 			cats++
 		}
 	}
-	if parts != 3 || chals < 50 || cats != 14 {
+	if parts != 3 || chals < 50 || cats != 16 { // XXE and Insecure Deserialization: only challenges Juice Shop disables in Docker
 		t.Errorf("crawled %d participant, %d challenge, %d category pages", parts, chals, cats)
 	}
 	if !strings.Contains(e.get(base+"/g/golden-game/c/xssBonusChallenge").Body.String(), "Nobody has solved this challenge yet.") {
 		t.Error("an unsolved challenge does not say so")
 	}
-	if e.get(base+"/g/golden-game/c/xxeFileDisclosureChallenge").Code != 404 {
-		t.Error("a challenge disabled in Docker has a page")
+	if e.get(base+"/g/golden-game/c/xxeFileDisclosureChallenge").Code != 200 {
+		t.Error("a challenge Juice Shop disables in Docker has no page: the VM runs it with its safety mode off")
 	}
 	pp := e.get(fmt.Sprintf(base+"/g/golden-game/p/%d", 1)).Body.String()
 	if !strings.Contains(pp, "first blood") || !strings.Contains(pp, "By difficulty") {

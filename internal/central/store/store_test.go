@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/macsnoeren/juiceshop-ctf/internal/juiceshop"
 	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
@@ -448,6 +449,43 @@ func TestUnknownKeysAreIgnored(t *testing.T) {
 	rep(t, st, m, at(1), "b", map[string]int{"madeUpChallenge": 1, "scoreBoardChallenge": 1})
 	if sc := scores(t, st, g, at(2)); sc["Anna"] != 100 {
 		t.Errorf("score %d, want 100", sc["Anna"])
+	}
+}
+
+// ---- the challenges Juice Shop disables in Docker count ----
+
+// The VM runs Juice Shop with its safety mode off, so the 18 challenges the
+// catalogue marks "Docker" can be solved, and must count: also in a database
+// whose challenges table an older central server filled with them disabled.
+func TestDockerDisabledChallengesCount(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "central.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What a 1.2.0 central server left behind.
+	if _, err := st.db.Exec(`UPDATE challenges SET disabled = 1 WHERE key IN ('xxeFileDisclosureChallenge', 'sstiChallenge')`); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	st, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	g, code := game(t, st, "Lab", protocol.StateRunning)
+	m := join(t, st, code, "Anna", t0)
+	rep(t, st, m, at(1), "b", map[string]int{"xxeFileDisclosureChallenge": 1, "sstiChallenge": 1})
+	b, err := st.Board(g, at(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := DefaultScoring[3] + DefaultScoring[6]; len(b.Rows) != 1 || b.Rows[0].Score != want {
+		t.Errorf("rows %+v, want Anna with %d (XXE Data Access 3★ + SSTi 6★)", b.Rows, want)
+	}
+	if want := len(juiceshop.Catalogue()); b.Total != want || want != 116 {
+		t.Errorf("the board counts %d challenges, want all %d of the catalogue (116)", b.Total, want)
 	}
 }
 

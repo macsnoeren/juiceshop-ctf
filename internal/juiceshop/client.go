@@ -51,11 +51,17 @@ const (
 	CodingFixed = 2
 )
 
-// Disabled reports whether Juice Shop disables this challenge in a container.
-// Every CTF instance runs in Docker, so a challenge marked for Docker can never
-// be solved and must count neither in the score nor in "x of y".
+// Disabled reports whether the Juice Shop that answered disables this
+// challenge where it runs. It then names why ("Docker", "Heroku", "Windows",
+// "Safety Mode"); any reason means the challenge cannot be solved there, so
+// it counts neither in the local score nor in "x of y". The VM starts Juice
+// Shop with its safety mode off, and then it names none.
+//
+// >>> This is about the LIVE answer. The embedded catalogue was captured
+// from a Juice Shop in its default mode and marks 18 challenges "Docker";
+// ctf-central counts those all the same.
 func (c Challenge) Disabled() bool {
-	return c.DisabledEnv != nil && strings.Contains(*c.DisabledEnv, "Docker")
+	return c.DisabledEnv != nil && *c.DisabledEnv != ""
 }
 
 // Codes are the three continue codes. An empty string means Juice Shop had

@@ -36,6 +36,11 @@
 # database. Do not change it back.
 name: juiceshop-ctf-lab
 
+# Juice Shop in each VM runs in UNSAFE MODE, as on the real VM: every
+# challenge on, including the 18 it disables in Docker (XXE, SSTi, RCE, file
+# write). ctf-node sets NODE_ENV=unsafe for Juice Shop itself; a NODE_ENV in
+# `environment:` here would not reach it. Nothing else changes for it: the
+# lab networks stay internal, and the VMs are published on 127.0.0.1 only.
 x-vm: &vm
   image: juiceshop-ctf:latest
   pull_policy: never

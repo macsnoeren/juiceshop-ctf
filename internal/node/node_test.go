@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -775,6 +777,96 @@ func TestFormsFromAnotherOriginAreRefused(t *testing.T) {
 	// The page's own form goes through.
 	if code := post("Sec-Fetch-Site", "same-origin", "Origin", "http://vm:8080"); code != 200 || h.n.st.Membership != nil {
 		t.Errorf("Forget from the page itself: %d", code)
+	}
+}
+
+// ---- the page answers nothing to code on the VM itself ----
+
+// Juice Shop's SSTi runs a student's (or a classmate's) code in the
+// container: from there it could GET the form token and POST Forget without
+// any Origin. The page refuses every connection from this machine but the
+// healthcheck's.
+func TestThePageRefusesTheVMItself(t *testing.T) {
+	c := newCentral(t)
+	_, code := c.game(t, "Sabotage")
+	h := newHarness(t, Config{DefaultCentralURL: c.URL})
+	h.poll()
+	h.join("Anna", code)
+	srv, err := NewServer(h.n, PageConfig{RefuseLocal: true, JuiceShop: http.NotFoundHandler()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := srv.Page()
+	// A valid token of THIS server (each has its own key), as Kali sees it:
+	// the refusals below must not rest on a bad token.
+	token := ""
+	do := func(method, path, from string) *httptest.ResponseRecorder {
+		f := url.Values{"csrf": {token}, "confirm": {"forget"}}
+		r := httptest.NewRequest(method, "http://127.0.0.1:8080"+path, strings.NewReader(f.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.RemoteAddr = from
+		w := httptest.NewRecorder()
+		page.ServeHTTP(w, r)
+		return w
+	}
+	m := csrfRE.FindStringSubmatch(do("GET", "/ctf/", "198.51.100.20:50000").Body.String())
+	if m == nil {
+		t.Fatal("no form token on the page from Kali")
+	}
+	token = m[1]
+	local := []string{"127.0.0.1:40000", "[::1]:40000", "[::ffff:127.0.0.1]:40000", "127.9.9.9:1"}
+	if addrs, _ := net.InterfaceAddrs(); len(addrs) > 0 {
+		for _, a := range addrs {
+			if n, ok := a.(*net.IPNet); ok && !n.IP.IsLoopback() {
+				local = append(local, net.JoinHostPort(n.IP.String(), "40000"))
+			}
+		}
+	}
+	for _, from := range local {
+		if w := do("GET", "/ctf/", from); w.Code != 403 || csrfRE.MatchString(w.Body.String()) {
+			t.Errorf("GET /ctf/ from %s: %d, or the token was shown", from, w.Code)
+		}
+		if w := do("POST", "/ctf/forget", from); w.Code != 403 || h.n.st.Membership == nil {
+			t.Fatalf("Forget from %s: %d", from, w.Code)
+		}
+		if w := do("GET", "/ctf//healthz", from); w.Code != 403 {
+			t.Errorf("another spelling of healthz from %s: %d", from, w.Code)
+		}
+	}
+	if w := do("GET", "/ctf/healthz", "127.0.0.1:40000"); w.Code != 204 {
+		t.Errorf("the healthcheck from the VM itself: %d", w.Code)
+	}
+	if w := do("GET", "/ctf/", "198.51.100.20:50000"); w.Code != 200 {
+		t.Errorf("the page from Kali: %d", w.Code)
+	}
+	if w := do("POST", "/ctf/forget", "198.51.100.20:50000"); w.Code != 200 || h.n.st.Membership != nil {
+		t.Errorf("Forget from Kali: %d", w.Code)
+	}
+}
+
+// ---- the gate's cookie never reaches Juice Shop ----
+
+func TestTheGatesCookieDoesNotReachJuiceShop(t *testing.T) {
+	h := newHarness(t, Config{Gate: true})
+	h.poll()
+	h.submit("/ctf/join", url.Values{"name": {"Zoë de Vries"}})
+	session := h.jar[sessionCookie]
+	if session == "" {
+		t.Fatal("no session after the join")
+	}
+	srv, err := NewServer(h.n, PageConfig{JuiceShop: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, strings.Join(r.Header.Values("Cookie"), "|"))
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("GET", "http://vm/juiceshop/rest/user/whoami", nil)
+	r.Header.Add("Cookie", "token=eyJ.a.b; "+sessionCookie+"="+session)
+	r.Header.Add("Cookie", "continueCode=x=y; language=en")
+	w := httptest.NewRecorder()
+	srv.Shop().ServeHTTP(w, r)
+	if got := w.Body.String(); w.Code != 200 || got != "token=eyJ.a.b; continueCode=x=y; language=en" {
+		t.Errorf("Juice Shop got %d %q: the session must go, the rest stay as sent", w.Code, got)
 	}
 }
 

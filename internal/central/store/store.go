@@ -161,6 +161,11 @@ func (s *Store) SchemaVersion() (int, error) {
 // loadCatalogue writes the embedded catalogue into the challenges table, so
 // the board's SQL can join on it. Challenges of an older Juice Shop that are
 // no longer in the catalogue stay (old solves point at them).
+//
+// NONE of the catalogue is disabled, although it marks 18 challenges
+// "Docker": the VM runs Juice Shop with its safety mode off, so those can be
+// solved too, and they count in every game and every "x of y". A VM from
+// before that (1.2.0 and older) cannot solve them, and simply never does.
 func (s *Store) loadCatalogue() error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -171,7 +176,7 @@ func (s *Store) loadCatalogue() error {
 		if _, err := tx.Exec(`INSERT INTO challenges (key, name, category, difficulty, disabled, has_coding) VALUES (?, ?, ?, ?, ?, ?)
 			ON CONFLICT (key) DO UPDATE SET name = excluded.name, category = excluded.category,
 			difficulty = excluded.difficulty, disabled = excluded.disabled, has_coding = excluded.has_coding`,
-			c.Key, c.Name, c.Category, c.Difficulty, c.Disabled(), c.HasCodingChallenge); err != nil {
+			c.Key, c.Name, c.Category, c.Difficulty, false, c.HasCodingChallenge); err != nil {
 			return err
 		}
 	}

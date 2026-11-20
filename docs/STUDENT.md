@@ -52,10 +52,18 @@ Shop's score board, once you have solved them: *Find it* (pick the
 vulnerable lines) and *Fix it* (pick the right fix). Each is worth half the
 points of the challenge.
 
+**Every challenge is on**, also the ones Juice Shop normally switches off
+because they are dangerous for the machine it runs on: remote code
+execution, XXE, file write and read, denial of service. Your CTF VM is
+yours to break. Six cannot be solved here, because they need a service the
+VM does not have: the two wallet challenges (*Mint the Honey Pot*, *Wallet
+Depletion*) and the four that need an AI chatbot (*Chatbot Prompt Injection*,
+*Greedy Chatbot Manipulation*, *AI Debugging*, *System Prompt Extraction*).
+
 On your CTF page:
 
-- **Restart Juice Shop** — when you have broken the shop. Your progress comes
-  back by itself.
+- **Restart Juice Shop** — when you have broken the shop, or it hangs. Your
+  progress comes back by itself.
 - **Forget** — deletes everything the VM knows about you and starts the shop
   empty. Only to start over or to hand the VM to someone else; what you
   already scored stays on the leaderboard, but you are taken off it.

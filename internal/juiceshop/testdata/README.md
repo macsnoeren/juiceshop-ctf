@@ -38,6 +38,11 @@ curl -s $J/rest/admin/application-version > application-version.json
 What these captures settled, and what the design had to be corrected for:
 
 - `disabledEnv` is a string (`"Docker"`) or `null`, not a list.
+- These were captured with Juice Shop in its **default** mode, so 18
+  challenges say `"Docker"`; the client tests count on that. On the VM Juice
+  Shop runs with `NODE_ENV=unsafe`, its safety mode off, and then every
+  challenge says `null`. ctf-central counts all of them, whatever the
+  catalogue says.
 - `findIt`/`fixIt` answer `{}` when there is nothing to encode, so an empty
   code is normal and must not be applied.
 - Applying a code after a restart restores the solves **without** sending the
