@@ -43,7 +43,7 @@
 {{define "gamestate"}}
 <p class="game-state">
   {{if .Ended}}<span class="badge done">Final result</span>
-  {{else if eq .State "running"}}<span class="badge live">Live</span>
+  {{else if or (eq .State "running") .Game.JoiningClosed}}<span class="badge live">Live</span>
   {{else}}<span class="badge">Open for joining</span>{{end}}
   {{if and .Game.EndsAt (not .Ended)}}<span class="muted">ends {{datetime .Game.EndsAt}}</span>{{end}}
   {{if and .Game.StartsAt (not .Ended)}}<span class="muted">starts {{datetime .Game.StartsAt}}</span>{{end}}
@@ -84,6 +84,7 @@
 <li{{if .FirstBlood}} class="first"{{end}}><time>{{hm .At}}</time>
   <a class="plain strong" href="{{$.GBase}}p/{{.Participant}}">{{.Name}}</a>
   <a class="plain muted" href="{{$.GBase}}c/{{.Challenge}}">{{.ChallengeName}}</a>
+  {{if .PhaseName}}<span class="badge coding">{{.PhaseName}}</span>{{end}}
   {{template "diff" .Difficulty}}
   {{if .FirstBlood}}<span class="badge blood">first blood</span>{{end}}</li>
 {{else}}<li class="muted">Nothing solved yet.</li>{{end}}

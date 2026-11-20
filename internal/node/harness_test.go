@@ -30,27 +30,41 @@ import (
 
 func strp(s string) *string { return &s }
 
-// fakeShop is a Juice Shop in memory: a small catalogue, a solved set, a boot
-// time that changes on restart, and continue codes that really encode the
-// solved set, so a restore can succeed or fail on purpose.
+// fakeShop is a Juice Shop in memory: a small catalogue, a solved set and
+// coding statuses, a boot time that changes on restart, and continue codes
+// that really encode them, so a restore can succeed or fail on purpose.
 type fakeShop struct {
 	mu         sync.Mutex
 	boot       time.Time
 	solved     map[string]bool
+	coding     map[string]int
 	applyFails bool
 	down       bool
 	applied    int
 }
 
 var catalogue = []juiceshop.Challenge{
-	{ID: 1, Key: "scoreBoardChallenge", Name: "Score Board", Category: "Miscellaneous", Difficulty: 1},
-	{ID: 2, Key: "loginAdminChallenge", Name: "Login Admin", Category: "Injection", Difficulty: 2},
-	{ID: 3, Key: "directoryListingChallenge", Name: "Confidential Document", Category: "Sensitive Data Exposure", Difficulty: 1},
+	{ID: 1, Key: "scoreBoardChallenge", Name: "Score Board", Category: "Miscellaneous", Difficulty: 1, HasCodingChallenge: true},
+	{ID: 2, Key: "loginAdminChallenge", Name: "Login Admin", Category: "Injection", Difficulty: 2, HasCodingChallenge: true},
+	{ID: 3, Key: "directoryListingChallenge", Name: "Confidential Document", Category: "Sensitive Data Exposure", Difficulty: 1, HasCodingChallenge: true},
 	{ID: 4, Key: "xxeFileDisclosureChallenge", Name: "XXE Data Access", Category: "XXE", Difficulty: 3, DisabledEnv: strp("Docker")},
 }
 
 func newFakeShop() *fakeShop {
-	return &fakeShop{boot: time.Date(2026, 11, 19, 8, 0, 0, 0, time.UTC), solved: map[string]bool{}}
+	return &fakeShop{boot: time.Date(2026, 11, 19, 8, 0, 0, 0, time.UTC), solved: map[string]bool{}, coding: map[string]int{}}
+}
+
+// code sets a coding challenge's status: 1 is Find it done, 2 Fix it.
+func (f *fakeShop) code(key string, status int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.coding[key] = status
+}
+
+func (f *fakeShop) codingStatus(key string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.coding[key]
 }
 
 func (f *fakeShop) solve(keys ...string) {
@@ -66,6 +80,7 @@ func (f *fakeShop) restart() {
 	defer f.mu.Unlock()
 	f.boot = f.boot.Add(time.Minute)
 	f.solved = map[string]bool{}
+	f.coding = map[string]int{}
 }
 
 func (f *fakeShop) nSolved() int {
@@ -83,6 +98,7 @@ func (f *fakeShop) Challenges(ctx context.Context) ([]juiceshop.Challenge, error
 	out := make([]juiceshop.Challenge, len(catalogue))
 	for i, c := range catalogue {
 		c.Solved = f.solved[c.Key]
+		c.CodingChallengeStatus = f.coding[c.Key]
 		c.CreatedAt = f.boot
 		out[i] = c
 	}
@@ -99,7 +115,25 @@ func (f *fakeShop) ContinueCodes(ctx context.Context) (juiceshop.Codes, error) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	return juiceshop.Codes{Challenges: "code:" + strings.Join(keys, "+")}, nil
+	var found, fixed []string
+	for k, v := range f.coding {
+		if v >= juiceshop.CodingFound {
+			found = append(found, k)
+		}
+		if v >= juiceshop.CodingFixed {
+			fixed = append(fixed, k)
+		}
+	}
+	sort.Strings(found)
+	sort.Strings(fixed)
+	c := juiceshop.Codes{Challenges: "code:" + strings.Join(keys, "+")}
+	if len(found) > 0 { // Juice Shop answers {} when there is nothing to encode
+		c.FindIt = "code:" + strings.Join(found, "+")
+	}
+	if len(fixed) > 0 {
+		c.FixIt = "code:" + strings.Join(fixed, "+")
+	}
+	return c, nil
 }
 
 func (f *fakeShop) ApplyContinueCodes(ctx context.Context, c juiceshop.Codes) error {
@@ -112,6 +146,13 @@ func (f *fakeShop) ApplyContinueCodes(ctx context.Context, c juiceshop.Codes) er
 	for _, k := range strings.Split(strings.TrimPrefix(c.Challenges, "code:"), "+") {
 		if k != "" {
 			f.solved[k] = true
+		}
+	}
+	for status, code := range map[int]string{juiceshop.CodingFound: c.FindIt, juiceshop.CodingFixed: c.FixIt} {
+		for _, k := range strings.Split(strings.TrimPrefix(code, "code:"), "+") {
+			if k != "" && f.coding[k] < status {
+				f.coding[k] = status
+			}
 		}
 	}
 	return nil

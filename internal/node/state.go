@@ -77,6 +77,13 @@ type Standing struct {
 	At              time.Time
 }
 
+// CodingKey is one phase (protocol.PhaseFindIt or PhaseFixIt) of the coding
+// challenge of one hacking challenge.
+type CodingKey struct {
+	Key   string
+	Phase string
+}
+
 // State is everything the node remembers about the student.
 type State struct {
 	Membership *Membership
@@ -85,11 +92,16 @@ type State struct {
 	// never moved and a key never removed, except by Forget.
 	Solved map[string]time.Time
 	// Cheat is Juice Shop's own cheat estimate, from its webhook.
-	Cheat         map[string]float64
+	Cheat map[string]float64
+	// Coding is the first time each coding-challenge phase was seen done,
+	// kept by the same rules as Solved.
+	Coding        map[CodingKey]time.Time
 	ContinueCodes juiceshop.Codes
-	// Baseline is what Juice Shop had solved when the student joined; it
-	// never counts, and applies only to the boot it was taken in.
+	// Baseline and CodingBaseline are what Juice Shop had done when the
+	// student joined; they never count, and apply only to BaselineBoot, the
+	// boot they were taken in.
 	Baseline        []string
+	CodingBaseline  []CodingKey
 	BaselineBoot    string
 	RestoreFailed   bool
 	CommandsApplied []string
@@ -98,7 +110,7 @@ type State struct {
 }
 
 func newState() *State {
-	return &State{Solved: map[string]time.Time{}, Cheat: map[string]float64{}}
+	return &State{Solved: map[string]time.Time{}, Cheat: map[string]float64{}, Coding: map[CodingKey]time.Time{}}
 }
 
 func (s *State) clone() *State {
@@ -123,7 +135,12 @@ func (s *State) clone() *State {
 	for k, v := range s.Cheat {
 		cp.Cheat[k] = v
 	}
+	cp.Coding = make(map[CodingKey]time.Time, len(s.Coding))
+	for k, v := range s.Coding {
+		cp.Coding[k] = v
+	}
 	cp.Baseline = append([]string(nil), s.Baseline...)
+	cp.CodingBaseline = append([]CodingKey(nil), s.CodingBaseline...)
 	cp.CommandsApplied = append([]string(nil), s.CommandsApplied...)
 	return &cp
 }

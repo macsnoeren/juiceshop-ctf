@@ -47,6 +47,11 @@ type the address your teacher gives you and press *Use this server*. Then *Open 
 or a password. Your CTF page shows your points, your rank and a link to the
 leaderboard.
 
+**7. Read the code.** Many challenges also have a *coding challenge* on Juice
+Shop's score board, once you have solved them: *Find it* (pick the
+vulnerable lines) and *Fix it* (pick the right fix). Each is worth half the
+points of the challenge.
+
 On your CTF page:
 
 - **Restart Juice Shop** — when you have broken the shop. Your progress comes

@@ -168,10 +168,10 @@ func (s *Store) loadCatalogue() error {
 	}
 	defer tx.Rollback()
 	for _, c := range juiceshop.Catalogue() {
-		if _, err := tx.Exec(`INSERT INTO challenges (key, name, category, difficulty, disabled) VALUES (?, ?, ?, ?, ?)
+		if _, err := tx.Exec(`INSERT INTO challenges (key, name, category, difficulty, disabled, has_coding) VALUES (?, ?, ?, ?, ?, ?)
 			ON CONFLICT (key) DO UPDATE SET name = excluded.name, category = excluded.category,
-			difficulty = excluded.difficulty, disabled = excluded.disabled`,
-			c.Key, c.Name, c.Category, c.Difficulty, c.Disabled()); err != nil {
+			difficulty = excluded.difficulty, disabled = excluded.disabled, has_coding = excluded.has_coding`,
+			c.Key, c.Name, c.Category, c.Difficulty, c.Disabled(), c.HasCodingChallenge); err != nil {
 			return err
 		}
 	}

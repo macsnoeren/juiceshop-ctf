@@ -180,6 +180,7 @@ table.cats td:nth-child(2) { width: 40%; }
 .badge.done, .badge.state-closed, .badge.state-draft { background: var(--surface-2); color: var(--muted); }
 .badge.warn, .badge.flag, .badge.ev-flag, .badge.ev-rejected, .badge.ev-legacy, .badge.ev-join-refused { background: #5a3d00; color: #ffd699; }
 .badge.blood { background: #5e1230; color: #ffc2d2; }
+.badge.coding { background: #003e6b; color: #cfe3ff; }
 .badge.st-left, .badge.st-removed { background: var(--danger-deep); color: #ffdad6; }
 .badge.ev-auth { background: #003e6b; color: #cfe3ff; }
 tr.st-left td, tr.st-removed td { opacity: .6; }
@@ -277,6 +278,13 @@ body.beamer .beamer-head .mark { width: 56px; height: 56px; }
 body.beamer .countdown { font-size: 2.8rem; font-weight: 500; font-variant-numeric: tabular-nums; margin: 0; color: var(--bar-text); }
 body.beamer .countdown.live { color: var(--accent); }
 body.beamer .countdown.final { color: var(--gold); }
+/* the join code above the board, on admin's beamer only; read from the back of the room */
+body.beamer .joinbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 32px;
+  margin: 0 0 24px; padding: 14px 24px; background: var(--surface); border: 2px solid var(--accent); border-radius: var(--radius); }
+body.beamer .joinbar[hidden] { display: none; }
+body.beamer .joinbar .how { margin: 0; font-size: 1.6rem; color: var(--muted); }
+body.beamer .joinbar .how strong { color: var(--text); }
+body.beamer .joinbar .code { margin: 0; font: 700 4.4rem/1.1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .08em; color: var(--accent); }
 body.beamer .podium.big .pts { font-size: 2.8rem; }
 body.beamer .podium.big .who { font-size: 1.7rem; }
 body.beamer .board td, body.beamer .board th { font-size: 1.5rem; padding: 12px 10px; }

@@ -1,5 +1,9 @@
 {{/* SPDX-License-Identifier: GPL-3.0-or-later
      Copyright (C) 2026 Maurice Snoeren */}}
+{{/* The board, full screen, for the classroom. The same page twice: public
+     at <game>/beamer, and in admin with the join code above the board (.Join
+     set; board.js shows and hides it from the "join" in admin's board.json).
+     The public one has no .Join and must NEVER show the code. */}}
 {{define "beamer"}}{{template "head" (print .Game.Name " · " .Title)}}
 <body class="beamer">
 <header class="appbar beamer-head">
@@ -9,7 +13,11 @@
   {{else}}<p class="countdown live">Live</p>{{end}}
 </header>
 <main>
-<div id="board" data-json="{{.GBase}}board.json" data-base="{{.GBase}}" data-beamer="1"{{if .Ended}} data-final="1"{{end}}>
+{{with .Join}}<section class="joinbar" id="join" aria-label="How to join"{{if not .Show}} hidden{{end}}>
+  <p class="how">Join: open <strong>http://&lt;your CTF VM&gt;/ctf/</strong>, type your name and</p>
+  <p class="code" id="joincode">{{.Code}}</p>
+</section>{{end}}
+<div id="board" data-json="{{.JSON}}" data-base="{{.GBase}}" data-beamer="1"{{if .Ended}} data-final="1"{{end}}>
   <section class="podium big" id="podium" aria-label="The top three">{{template "podium" .}}</section>
   <section class="card">
     <table class="board">

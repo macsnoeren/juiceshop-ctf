@@ -219,6 +219,13 @@ type boardPage struct {
 	B *store.Board
 }
 
+// beamerPage is the beamer, public or in admin.
+type beamerPage struct {
+	boardPage
+	JSON string    // what board.js refreshes from
+	Join *joinInfo // nil on the public beamer, which NEVER shows the code
+}
+
 func (s *Server) board(w http.ResponseWriter, r *http.Request) (*store.Game, *store.Board, bool) {
 	g, ok := s.publicGame(w, r)
 	if !ok {
@@ -240,7 +247,7 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleBeamer(w http.ResponseWriter, r *http.Request) {
 	if g, b, ok := s.board(w, r); ok {
-		s.render(w, http.StatusOK, "beamer", boardPage{s.base(g), b})
+		s.render(w, http.StatusOK, "beamer", beamerPage{boardPage{s.base(g), b}, s.base(g).GBase + "board.json", nil})
 	}
 }
 

@@ -112,6 +112,7 @@
         0,
         0
       ],
+      "coding": 0,
       "first_bloods": 3,
       "last_solve": "2026-11-19T09:20:00Z",
       "name": "Zoë de Vries",
@@ -138,6 +139,7 @@
         0,
         0
       ],
+      "coding": 0,
       "first_bloods": 1,
       "last_solve": "2026-11-19T09:12:00Z",
       "name": "Bram O'Neill",
@@ -164,6 +166,7 @@
         0,
         0
       ],
+      "coding": 0,
       "first_bloods": 1,
       "last_solve": "2026-11-19T09:30:00Z",
       "name": "Chen Li",
@@ -192,6 +195,7 @@
         0,
         0
       ],
+      "coding": 0,
       "first_bloods": 3,
       "last_solve": "2026-11-19T09:20:00Z",
       "name": "Zoë de Vries",
@@ -218,6 +222,7 @@
         0,
         0
       ],
+      "coding": 0,
       "first_bloods": 1,
       "last_solve": "2026-11-19T09:12:00Z",
       "name": "Bram O'Neill",
@@ -244,6 +249,7 @@
         0,
         0
       ],
+      "coding": 0,
       "first_bloods": 1,
       "last_solve": "2026-11-19T09:30:00Z",
       "name": "Chen Li",

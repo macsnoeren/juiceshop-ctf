@@ -68,10 +68,13 @@ attacked, how each attack is met, and what is left to you.
    optionally a start and an end (after the end no solve counts and the board
    shows the final result), the points per difficulty (1.0's 100 / 250 / 450 /
    700 / 1000 / 1350 by default), and whether the board is hidden or shows
-   initials instead of names.
-2. **Write down the join code.** It is shown once, on the page after
-   *Create*. It is stored only as a hash: lost means *New join code* on the
-   game page (students who joined keep playing; the old code stops admitting).
+   initials instead of names. The *Find it* and *Fix it* of a coding
+   challenge score half the challenge's points each; they are not solves,
+   so they count in no "solved" and no first blood.
+2. **The join code** is on the game page, in admin only. *New join code*
+   replaces it (students who joined keep playing; the old code stops
+   admitting). A game made with an older central server shows no code until you
+   make a new one: its code was kept only as a hash.
 3. The game is a **draft**: nobody can join yet. Press *Open for joining*
    (or *Start*) when the class may come in. Open and running both admit
    students and count solves.
@@ -79,10 +82,20 @@ attacked, how each attack is met, and what is left to you.
 
 ## 2. In the lesson
 
-- Put the **join code** and the **board** on the beamer: the board of a game
-  is `…/juiceshop-ctf/g/<slug>/`, full screen at `…/g/<slug>/beamer` (a
-  countdown when the game has an end, the ticker at the bottom, the final
-  result when it closes).
+- Put **Beamer with join code** (game page in admin) on the beamer: the
+  board full screen with the join code above it, so one screen is enough. The
+  code shows while students can join and disappears, within ten seconds, when
+  you close joining or the game ends; it comes back when you open joining
+  again. It needs your login, so open it on your own laptop. The public board
+  (`…/juiceshop-ctf/g/<slug>/`, full screen at `…/g/<slug>/beamer`) never
+  shows the code. Both have a countdown when the game has an end, the ticker
+  at the bottom, and the final result when it closes.
+- **Close joining** (game page, *State*) once the class is in: nobody new can
+  join, while everyone in the game plays on and their solves count. *Open
+  joining again* for a latecomer, or a student who pressed *Forget*; then
+  close it again. *Open for joining* (after ending the game) opens joining
+  too. A join a VM made offline that only arrives after you closed joining is
+  refused as well: the student sees why and asks you.
 - Students import the VM, find its address from Kali (their first task),
   open `http://<address>:8080/ctf/`, and type their name and the code. A student
   in the game appears on the board at once with 0 points.
@@ -96,6 +109,7 @@ attacked, how each attack is met, and what is left to you.
 |----------|----------|----|
 | "Unknown join code" | typo, or an old code | give the code again (upper case and dashes are fine) |
 | "This game is not open yet" / "closed" | the game's state | *Open for joining* |
+| "Joining this game is closed; ask your teacher" | you closed joining | *Open joining again*, and close it after they are in |
 | "Waiting for the central server" | the VM cannot reach the central server (NAT adapter, network) | nothing: they play on, the join and every solve arrive when it can |
 | "Join again" with a message | the central server no longer knows the VM's token (game deleted) | they join again; their solves on the VM are kept |
 | The shop is broken | they broke it (there is a DoS challenge) | *Restart Juice Shop* on their CTF page: the progress comes back |

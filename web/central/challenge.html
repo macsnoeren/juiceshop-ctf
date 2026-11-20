@@ -10,7 +10,8 @@
 <section class="card">
   <p class="eyebrow">{{.Challenge.Category}}</p>
   <h1>{{.Challenge.Name}}</h1>
-  <p class="meta">{{template "diff" .Challenge.Difficulty}} <span>{{.Challenge.Points}} points</span></p>
+  <p class="meta">{{template "diff" .Challenge.Difficulty}} <span>{{.Challenge.Points}} points</span>
+    {{if .Challenge.CodingPoints}}<span class="muted">· coding challenge: Find it and Fix it {{.Challenge.CodingPoints}} points each</span>{{end}}</p>
 </section>
 <section class="card">
   <h2>Solved by</h2>
@@ -21,6 +22,17 @@
   </ol>
   {{else}}<p class="muted">Nobody has solved this challenge yet.</p>{{end}}
 </section>
+{{if .Challenge.CodingPoints}}
+<section class="card">
+  <h2>Coding challenge</h2>
+  {{if .Coders}}
+  <ol class="timeline">
+    {{range .Coders}}<li><span class="rank">{{.Order}}</span><a class="plain strong" href="{{$.GBase}}p/{{.Participant}}">{{.Name}}</a>
+      <span class="badge coding">{{.PhaseName}}</span> <time>{{hm .At}}</time></li>{{end}}
+  </ol>
+  {{else}}<p class="muted">Nobody has done its Find it or Fix it yet.</p>{{end}}
+</section>
+{{end}}
 {{end}}
 </main>
 </body>

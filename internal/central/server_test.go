@@ -315,19 +315,27 @@ func TestRejectedEventsAreLimited(t *testing.T) {
 
 // ---- admin ----------------------------------------------------------------
 
-func TestJoinCodeIsShownOnce(t *testing.T) {
+func TestJoinCodeIsShownInAdminOnly(t *testing.T) {
 	e := newEnv(t)
 	id, code := e.game("Class", nil, "")
-	page := e.get(fmt.Sprintf("%s/admin/games/%d", base, id)).Body.String()
-	if strings.Contains(page, code) || strings.Contains(page, strings.ReplaceAll(code, "-", "")) {
-		t.Error("the join code is shown again after leaving the page")
+	if m := codeRE.FindStringSubmatch(e.get(fmt.Sprintf("%s/admin/games/%d", base, id)).Body.String()); m == nil || m[1] != code {
+		t.Error("the game page does not show the join code again")
 	}
 	w := e.post(fmt.Sprintf("%s/admin/games/%d/code", base, id), nil)
 	m := codeRE.FindStringSubmatch(w.Body.String())
 	if m == nil || m[1] == code {
 		t.Fatal("regenerating showed no new code")
 	}
+	if strings.Contains(w.Body.String(), code) {
+		t.Error("the old code is still shown")
+	}
 	e.post(fmt.Sprintf("%s/admin/games/%d/state", base, id), url.Values{"to": {"open"}})
+	bare := strings.ReplaceAll(m[1], "-", "")
+	for _, p := range []string{"/", "/g/class/", "/g/class/beamer", "/g/class/board.json"} {
+		if body := e.get(base + p).Body.String(); strings.Contains(body, m[1]) || strings.Contains(body, bare) {
+			t.Errorf("the public %s shows the join code", p)
+		}
+	}
 	if s, _ := e.join(code, "Old code"); s != 403 {
 		t.Errorf("the old code still admits: %d", s)
 	}
@@ -344,6 +352,80 @@ func TestJoinCodeIsShownOnce(t *testing.T) {
 	w = e.req("POST", fmt.Sprintf("%s/admin/games/%d/clear", base, id), strings.NewReader("confirm=Class"), "Content-Type", "application/x-www-form-urlencoded")
 	if w.Code != 403 {
 		t.Errorf("a POST without the CSRF token: %d", w.Code)
+	}
+}
+
+func TestBeamerInAdminShowsTheCodeWhileJoiningIsOpen(t *testing.T) {
+	e := newEnv(t)
+	id, code := e.game("Lesson", nil, "")
+	beamer := fmt.Sprintf("%s/admin/games/%d/beamer", base, id)
+	joinOf := func() joinInfo {
+		var d struct {
+			Join joinInfo `json:"join"`
+			Rows []any    `json:"rows"`
+		}
+		w := e.get(fmt.Sprintf("%s/admin/games/%d/board.json", base, id))
+		if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil || d.Rows == nil {
+			t.Fatalf("admin's board.json: %d %v", w.Code, err)
+		}
+		return d.Join
+	}
+	shown := `<p class="code" id="joincode">` + code + `</p>`
+	// A draft: the beamer can be up already, the code not yet.
+	if p := e.get(beamer).Body.String(); !strings.Contains(p, `id="join" aria-label="How to join" hidden>`) || strings.Contains(p, code) {
+		t.Error("a draft's beamer shows the code")
+	}
+	if j := joinOf(); j.Show || j.Code != "" {
+		t.Errorf("a draft's join: %+v", j)
+	}
+	e.post(fmt.Sprintf("%s/admin/games/%d/state", base, id), url.Values{"to": {"running"}})
+	if p := e.get(beamer).Body.String(); !strings.Contains(p, shown) || strings.Contains(p, "hidden>") || !strings.Contains(p, `data-json="`+base+`/admin/games/`) {
+		t.Error("a running game's beamer does not show the code")
+	}
+	if j := joinOf(); !j.Show || j.Code != code {
+		t.Errorf("a running game's join: %+v", j)
+	}
+	if s, _ := e.join(code, "On Time"); s != 201 {
+		t.Fatalf("join: %d", s)
+	}
+
+	page := e.post(fmt.Sprintf("%s/admin/games/%d/joining", base, id), url.Values{"to": {"closed"}}).Body.String()
+	if !strings.Contains(page, "joining closed") || !strings.Contains(page, "Open joining again") {
+		t.Error("the game page does not say joining is closed")
+	}
+	if p := e.get(beamer).Body.String(); strings.Contains(p, code) {
+		t.Error("the beamer shows the code with joining closed")
+	}
+	if j := joinOf(); j.Show || j.Code != "" {
+		t.Errorf("join with joining closed: %+v", j)
+	}
+	if s, _ := e.join(code, "Too Late"); s != 409 {
+		t.Errorf("a join with joining closed: %d", s)
+	}
+	evs := e.events(store.EvJoinRefused)
+	if len(evs) != 1 || !strings.Contains(evs[0].Text, "joining this game is closed") {
+		t.Errorf("refused events %+v", evs)
+	}
+	if !strings.Contains(e.get(base+"/g/lesson/board.json").Body.String(), "On Time") {
+		t.Error("the player who joined in time is off the board")
+	}
+
+	e.post(fmt.Sprintf("%s/admin/games/%d/joining", base, id), url.Values{"to": {"open"}})
+	if j := joinOf(); !j.Show {
+		t.Error("the code does not come back when joining opens again")
+	}
+	if s, _ := e.join(code, "Now In"); s != 201 {
+		t.Errorf("a join after joining opened again: %d", s)
+	}
+	if w := e.post(fmt.Sprintf("%s/admin/games/%d/joining", base, id), url.Values{"to": {"maybe"}}); w.Code != 400 {
+		t.Errorf("joining to=maybe: %d", w.Code)
+	}
+	var admins []string
+	for _, ev := range e.events(store.EvAdmin) {
+		admins = append(admins, ev.Text)
+	}
+	if all := strings.Join(admins, "\n"); !strings.Contains(all, "joining closed") || !strings.Contains(all, "joining opened again") {
+		t.Errorf("the feed lacks the joining actions: %s", all)
 	}
 }
 
@@ -586,6 +668,45 @@ func TestBoardPage(t *testing.T) {
 	}
 	if regexp.MustCompile(`\.innerHTML|insertAdjacentHTML|document\.write`).Match(js) {
 		t.Error("board.js uses innerHTML")
+	}
+}
+
+// ---- coding phases reach every page that shows a score ----
+
+func TestCodingOnThePages(t *testing.T) {
+	e := newEnv(t)
+	_, code := e.game("Escape", nil, "running")
+	_, jr := e.join(code, "Bram")
+	r := protocol.Report{Protocol: 2, SentAt: e.now, Boot: "boot-1", Reachable: true,
+		Node:   protocol.Node{UID: strings.Repeat("b", 32), Version: "v1.1.0-test", JuiceShop: "20.3.0"},
+		Solves: []protocol.Solve{{Key: "scoreBoardChallenge", SolvedAt: e.now}},
+		Coding: []protocol.CodingSolve{{Key: "scoreBoardChallenge", Phase: protocol.PhaseFindIt, SolvedAt: e.now},
+			{Key: "scoreBoardChallenge", Phase: protocol.PhaseFixIt, SolvedAt: e.now}}}
+	var out protocol.ReportResponse
+	w := e.json(base+"/api/v2/report", r, "Authorization", "Bearer "+jr.Token)
+	json.Unmarshal(w.Body.Bytes(), &out)
+	if w.Code != 200 || out.Standing == nil || out.Standing.Score != 200 {
+		t.Fatalf("report: %d %+v", w.Code, out.Standing)
+	}
+	for path, want := range map[string][]string{
+		"/g/escape/":           {`class="badge coding">Find it`, `class="badge coding">Fix it`},
+		"/g/escape/board.json": {`"phase":"fix_it"`, `"phase_name":"Fix it"`, `"coding":2`},
+		fmt.Sprintf("/g/escape/p/%d", jr.Participant): {`coding (Find it, Fix it)`, `50 points`},
+		"/g/escape/c/scoreBoardChallenge":             {`Find it and Fix it 50 points each`, `<h2>Coding challenge</h2>`},
+		"/g/escape/c/privacyPolicyChallenge":          {`Nobody has solved this challenge yet.`},
+	} {
+		w := e.get(base + path)
+		if w.Code != 200 {
+			t.Errorf("%s: %d", path, w.Code)
+		}
+		for _, s := range want {
+			if !strings.Contains(w.Body.String(), s) {
+				t.Errorf("%s lacks %s", path, s)
+			}
+		}
+	}
+	if strings.Contains(e.get(base+"/g/escape/c/privacyPolicyChallenge").Body.String(), "Coding challenge") {
+		t.Error("a challenge without a coding challenge shows one")
 	}
 }
 

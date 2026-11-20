@@ -228,4 +228,25 @@ var migrations = []string{
 	);
 	CREATE INDEX sessions_by_user ON sessions (user_id);
 	ALTER TABLE events ADD COLUMN actor TEXT NOT NULL DEFAULT '';`,
+
+	// 5 — the join code kept readable next to its hash, so the beamer in
+	// admin can show it for as long as the game admits students; and joining
+	// closed while the game goes on. Games made before this have only the
+	// hash (code stays NULL) until the operator makes a new code.
+	`ALTER TABLE games ADD COLUMN code TEXT;
+	ALTER TABLE games ADD COLUMN joining_closed INTEGER NOT NULL DEFAULT 0;`,
+
+	// 6 — coding challenges: which challenges have one, and each phase
+	// (find_it, fix_it) a participant did, kept like solves. A table of its
+	// own, so a coding phase can never be read as a solve.
+	`ALTER TABLE challenges ADD COLUMN has_coding INTEGER NOT NULL DEFAULT 0;
+	CREATE TABLE coding_solves (
+		participant_id INTEGER NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
+		challenge_key  TEXT NOT NULL,
+		phase          TEXT NOT NULL,
+		solved_at      TEXT NOT NULL,
+		received_at    TEXT NOT NULL,
+		counted        INTEGER NOT NULL DEFAULT 1,
+		PRIMARY KEY (participant_id, challenge_key, phase)
+	);`,
 }

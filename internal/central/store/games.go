@@ -20,10 +20,17 @@ import (
 // Game is one CTF: a group of students, a time window, a
 // scoring table and a board.
 type Game struct {
-	ID            int64
-	Name          string
-	Slug          string
-	HasCode       bool
+	ID      int64
+	Name    string
+	Slug    string
+	HasCode bool
+	// Code is the join code, readable, for admin and its beamer; empty for a
+	// game made before codes were kept (HasCode, but no Code). NEVER put it
+	// on a public page or in board.json: anyone who can read it can join.
+	Code string
+	// JoiningClosed keeps new students out of an open or running game; those
+	// already in it play on.
+	JoiningClosed bool
 	State         string
 	StartsAt      *time.Time
 	EndsAt        *time.Time
@@ -52,11 +59,15 @@ func (g *Game) Ended(now time.Time) bool {
 	return g.EndsAt != nil && !now.Before(*g.EndsAt)
 }
 
-// Accepting reports whether a solve received at now counts, and whether a
-// student may join: the game is open or running and not past its end.
+// Accepting reports whether a solve received at now counts: the game is
+// open or running and not past its end. Joinable adds joining closed.
 func (g *Game) Accepting(now time.Time) bool {
 	return (g.State == protocol.StateOpen || g.State == protocol.StateRunning) && !g.Ended(now)
 }
+
+// Joinable reports whether a student may join at now: the game accepts
+// solves and the operator has not closed joining.
+func (g *Game) Joinable(now time.Time) bool { return g.Accepting(now) && !g.JoiningClosed }
 
 // EffectiveState is the state as the node and the board show it: a running
 // game past its end time is closed, even before the operator closes it.
@@ -150,8 +161,8 @@ func (in *GameInput) validate() error {
 }
 
 // CreateGame makes a game in state draft and returns it with its join code.
-// The code is returned ONCE; only its hash is stored. Two games with the same
-// name get different slugs (-2, -3, …).
+// The join looks the code up by its hash; the code itself is kept too, for
+// the beamer. Two games with the same name get different slugs (-2, -3, …).
 func (s *Store) CreateGame(in GameInput, now time.Time) (*Game, string, error) {
 	if err := in.validate(); err != nil {
 		return nil, "", err
@@ -174,9 +185,9 @@ func (s *Store) CreateGame(in GameInput, now time.Time) (*Game, string, error) {
 		slug = base + "-" + strconv.Itoa(i)
 	}
 	code := protocol.NewJoinCode()
-	res, err := tx.Exec(`INSERT INTO games (name, slug, code_hash, state, starts_at, ends_at, board_hidden, board_initials, created_at)
-		VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?)`,
-		in.Name, slug, protocol.Hash(code), nullTS(in.StartsAt), nullTS(in.EndsAt), in.BoardHidden, in.BoardInitials, ts(now))
+	res, err := tx.Exec(`INSERT INTO games (name, slug, code, code_hash, state, starts_at, ends_at, board_hidden, board_initials, created_at)
+		VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)`,
+		in.Name, slug, code, protocol.Hash(code), nullTS(in.StartsAt), nullTS(in.EndsAt), in.BoardHidden, in.BoardInitials, ts(now))
 	if err != nil {
 		return nil, "", err
 	}
@@ -227,7 +238,8 @@ func (s *Store) UpdateGame(id int64, in GameInput) error {
 }
 
 // SetState moves a game to another state, if that transition is allowed.
-// Closing records when (the end of counting); reopening clears it.
+// Closing records when (the end of counting); reopening clears it. Open is
+// "open for joining", so it opens joining too.
 func (s *Store) SetState(id int64, to string, now time.Time) error {
 	g, err := s.Game(id)
 	if err != nil {
@@ -240,15 +252,29 @@ func (s *Store) SetState(id int64, to string, now time.Time) error {
 	if to == protocol.StateClosed {
 		closed = ts(now)
 	}
-	_, err = s.db.Exec(`UPDATE games SET state = ?, closed_at = ? WHERE id = ?`, to, closed, id)
+	_, err = s.db.Exec(`UPDATE games SET state = ?, closed_at = ?,
+		joining_closed = CASE WHEN ? = 'open' THEN 0 ELSE joining_closed END WHERE id = ?`, to, closed, to, id)
 	return err
 }
 
-// RegenerateCode gives a game a new join code, returned ONCE. The old code
-// stops admitting anyone at once; students who joined keep their tokens.
+// SetJoiningClosed closes or opens joining. It changes nothing for students
+// already in the game, and nothing about the state.
+func (s *Store) SetJoiningClosed(id int64, closed bool) error {
+	res, err := s.db.Exec(`UPDATE games SET joining_closed = ? WHERE id = ?`, closed, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// RegenerateCode gives a game a new join code. The old code stops admitting
+// anyone at once; students who joined keep their tokens.
 func (s *Store) RegenerateCode(id int64) (string, error) {
 	code := protocol.NewJoinCode()
-	res, err := s.db.Exec(`UPDATE games SET code_hash = ? WHERE id = ?`, protocol.Hash(code), id)
+	res, err := s.db.Exec(`UPDATE games SET code = ?, code_hash = ? WHERE id = ?`, code, protocol.Hash(code), id)
 	if err != nil {
 		return "", err
 	}
@@ -258,13 +284,13 @@ func (s *Store) RegenerateCode(id int64) (string, error) {
 	return code, nil
 }
 
-const gameCols = `id, name, slug, code_hash IS NOT NULL, state, starts_at, ends_at, closed_at, board_hidden, board_initials, created_at`
+const gameCols = `id, name, slug, code_hash IS NOT NULL, COALESCE(code, ''), joining_closed, state, starts_at, ends_at, closed_at, board_hidden, board_initials, created_at`
 
 func scanGame(row interface{ Scan(...any) error }) (*Game, error) {
 	g := &Game{}
 	var starts, ends, closed sql.NullString
 	var created string
-	if err := row.Scan(&g.ID, &g.Name, &g.Slug, &g.HasCode, &g.State, &starts, &ends, &closed, &g.BoardHidden, &g.BoardInitials, &created); err != nil {
+	if err := row.Scan(&g.ID, &g.Name, &g.Slug, &g.HasCode, &g.Code, &g.JoiningClosed, &g.State, &starts, &ends, &closed, &g.BoardHidden, &g.BoardInitials, &created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -343,7 +369,7 @@ func (s *Store) Games(now time.Time) ([]GameSummary, error) {
 		var starts, ends, closed sql.NullString
 		var created string
 		var gs GameSummary
-		if err := rows.Scan(&g.ID, &g.Name, &g.Slug, &g.HasCode, &g.State, &starts, &ends, &closed, &g.BoardHidden, &g.BoardInitials, &created,
+		if err := rows.Scan(&g.ID, &g.Name, &g.Slug, &g.HasCode, &g.Code, &g.JoiningClosed, &g.State, &starts, &ends, &closed, &g.BoardHidden, &g.BoardInitials, &created,
 			&gs.Participants, &gs.Online); err != nil {
 			return nil, err
 		}

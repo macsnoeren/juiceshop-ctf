@@ -12,11 +12,11 @@ import (
 
 // The challenge catalogue of the pinned Juice Shop, cut down from
 // testdata/challenges-fresh.json to what scoring needs (key, name, category,
-// difficulty, disabledEnv). Captured again with the fixtures when Juice Shop
-// is upgraded (testdata/README.md):
+// difficulty, disabledEnv, hasCodingChallenge). Captured again with the
+// fixtures when Juice Shop is upgraded (testdata/README.md):
 //
 //	python3 -c 'import json; d=json.load(open("testdata/challenges-fresh.json"))["data"]; \
-//	  json.dump([{k: c[k] for k in ("id","key","name","category","difficulty","disabledEnv")} for c in d], \
+//	  json.dump([{k: c[k] for k in ("id","key","name","category","difficulty","disabledEnv","hasCodingChallenge")} for c in d], \
 //	  open("catalogue-20.3.0.json","w"), ensure_ascii=False, indent=0)'
 //
 // WHY the central server has its own copy: in 1.1 the participant token is on

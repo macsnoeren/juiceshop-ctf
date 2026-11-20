@@ -5,15 +5,18 @@ package node
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/juiceshop"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
-// The watcher decides what counts as a solve:
+// The watcher decides what counts as a solve (and, by the same rules, as a
+// coding-challenge phase done):
 //
 //   - Juice Shop's /api/Challenges is the only source of truth about solves;
 //     the webhook only says "poll now" (and carries the cheat score);
@@ -40,45 +43,81 @@ func bootID(chs []juiceshop.Challenge) string {
 	return chs[best].CreatedAt.UTC().Format(time.RFC3339Nano)
 }
 
-func baselineSet(st *State, boot string) map[string]bool {
+func baselineSet(st *State, boot string) (map[string]bool, map[CodingKey]bool) {
 	if st.BaselineBoot == "" || st.BaselineBoot != boot {
-		return nil
+		return nil, nil
 	}
 	m := make(map[string]bool, len(st.Baseline))
 	for _, k := range st.Baseline {
 		m[k] = true
 	}
-	return m
+	cm := make(map[CodingKey]bool, len(st.CodingBaseline))
+	for _, k := range st.CodingBaseline {
+		cm[k] = true
+	}
+	return m, cm
 }
+
+// codingPhases are the coding-challenge phases Juice Shop says are done for
+// c. A status of 2 is Fix it, which Juice Shop only offers after Find it.
+func codingPhases(c juiceshop.Challenge) []string {
+	switch {
+	case c.CodingChallengeStatus >= juiceshop.CodingFixed:
+		return []string{protocol.PhaseFindIt, protocol.PhaseFixIt}
+	case c.CodingChallengeStatus >= juiceshop.CodingFound:
+		return []string{protocol.PhaseFindIt}
+	}
+	return nil
+}
+
+var allPhases = []string{protocol.PhaseFindIt, protocol.PhaseFixIt}
 
 // Observation is what one poll found, compared with the state.
 type Observation struct {
 	NewSolves []string
-	// Deficit are challenges the state knows as solved that Juice Shop
-	// does not: the sign of a restarted Juice Shop.
+	NewCoding []CodingKey
+	// Deficit are solves and coding phases the state knows that Juice Shop
+	// does not: the sign of a restarted Juice Shop. A coding phase is
+	// written key/phase.
 	Deficit []string
 }
 
-// Observe records first-seen solve times in st (only while recording) and
-// reports what changed. Disabled challenges and the baseline are skipped.
+// Observe records first-seen solve and coding times in st (only while
+// recording) and reports what changed. Disabled challenges and the baseline
+// are skipped.
 func Observe(st *State, chs []juiceshop.Challenge, boot string, now time.Time) Observation {
 	var o Observation
 	if st.Membership == nil {
 		return o
 	}
 	rec := st.recording()
-	base := baselineSet(st, boot)
+	base, cbase := baselineSet(st, boot)
 	for _, c := range chs {
-		if c.Disabled() || base[c.Key] {
+		if c.Disabled() {
 			continue
 		}
 		_, known := st.Solved[c.Key]
 		switch {
+		case base[c.Key]:
 		case c.Solved && !known && rec:
 			st.Solved[c.Key] = now.UTC()
 			o.NewSolves = append(o.NewSolves, c.Key)
 		case !c.Solved && known:
 			o.Deficit = append(o.Deficit, c.Key)
+		}
+		done := codingPhases(c)
+		for _, ph := range allPhases {
+			k := CodingKey{c.Key, ph}
+			_, known := st.Coding[k]
+			has := slices.Contains(done, ph)
+			switch {
+			case cbase[k]:
+			case has && !known && rec:
+				st.Coding[k] = now.UTC()
+				o.NewCoding = append(o.NewCoding, k)
+			case !has && known:
+				o.Deficit = append(o.Deficit, c.Key+"/"+ph)
+			}
 		}
 	}
 	return o
@@ -89,14 +128,9 @@ func deficit(st *State, chs []juiceshop.Challenge, boot string) []string {
 	if st.Membership == nil {
 		return nil
 	}
-	base := baselineSet(st, boot)
-	var out []string
-	for _, c := range chs {
-		if _, known := st.Solved[c.Key]; known && !c.Solved && !c.Disabled() && !base[c.Key] {
-			out = append(out, c.Key)
-		}
-	}
-	return out
+	cp := st.clone()
+	cp.Membership.Game.State = protocol.StateClosed // not recording: nothing is added
+	return Observe(cp, chs, boot, time.Time{}).Deficit
 }
 
 // signature changes whenever Juice Shop's progress changes, coding-challenge
@@ -112,17 +146,26 @@ func signature(chs []juiceshop.Challenge) string {
 	return strings.Join(parts, ",")
 }
 
-// takeBaseline records what Juice Shop has solved now as not the student's
-// (called at the first join), leaving out what the node already knows as
-// theirs (imported from 1.0).
+// takeBaseline records what Juice Shop has solved now, coding phases
+// included, as not the student's (called at the first join), leaving out
+// what the node already knows as theirs (imported from 1.0).
 func (n *Node) takeBaseline() {
-	n.st.Baseline, n.st.BaselineBoot = nil, ""
+	n.st.Baseline, n.st.CodingBaseline, n.st.BaselineBoot = nil, nil, ""
 	for _, c := range n.catalogue {
-		if _, mine := n.st.Solved[c.Key]; c.Solved && !c.Disabled() && !mine {
+		if c.Disabled() {
+			continue
+		}
+		if _, mine := n.st.Solved[c.Key]; c.Solved && !mine {
 			n.st.Baseline = append(n.st.Baseline, c.Key)
 		}
+		for _, ph := range codingPhases(c) {
+			k := CodingKey{c.Key, ph}
+			if _, mine := n.st.Coding[k]; !mine {
+				n.st.CodingBaseline = append(n.st.CodingBaseline, k)
+			}
+		}
 	}
-	if len(n.st.Baseline) > 0 {
+	if len(n.st.Baseline) > 0 || len(n.st.CodingBaseline) > 0 {
 		sort.Strings(n.st.Baseline)
 		n.st.BaselineBoot = n.boot
 	}
@@ -161,7 +204,7 @@ func (n *Node) Poll(ctx context.Context) {
 	n.boot, n.catalogue = boot, chs
 	st := n.st
 	if st.BaselineBoot != "" && st.BaselineBoot != boot {
-		st.Baseline, st.BaselineBoot = nil, ""
+		st.Baseline, st.CodingBaseline, st.BaselineBoot = nil, nil, ""
 		dirty = true
 	}
 	missing := deficit(st, chs, boot)
@@ -209,7 +252,7 @@ func (n *Node) Poll(ctx context.Context) {
 
 	n.mu.Lock()
 	obs := Observe(st, chs, boot, n.now())
-	if len(obs.NewSolves) > 0 {
+	if len(obs.NewSolves) > 0 || len(obs.NewCoding) > 0 {
 		dirty = true
 	}
 	if st.RestoreFailed && len(obs.Deficit) == 0 {
@@ -221,6 +264,9 @@ func (n *Node) Poll(ctx context.Context) {
 	n.mu.Unlock()
 	for _, k := range obs.NewSolves {
 		n.log.Info("challenge solved", "challenge", k)
+	}
+	for _, k := range obs.NewCoding {
+		n.log.Info("coding challenge phase done", "challenge", k.Key, "phase", k.Phase)
 	}
 
 	if fetchCodes {
@@ -282,10 +328,24 @@ type Category struct {
 	Total  int
 }
 
-// Summary counts solved and total challenges, overall and per category, and
-// the local score by the scoring table — what the page shows, also without a
-// central server. Disabled challenges count in neither.
-func Summary(st *State, chs []juiceshop.Challenge, scoring map[int]int) (solved, total, score int, cats []Category) {
+// CodingPoints is what one coding-challenge phase adds to the local score:
+// half the challenge's points. ctf-central's board uses the same rule.
+func CodingPoints(points int) int { return points / 2 }
+
+// Progress is what the page counts, also without a central server.
+// Disabled challenges count nowhere.
+type Progress struct {
+	Solved, Total int
+	// Coding and CodingTotal count phases: two per coding challenge.
+	Coding, CodingTotal int
+	Score               int
+	Categories          []Category
+}
+
+// Summary counts solved challenges and coding phases, overall and per
+// category, and the local score by the scoring table.
+func Summary(st *State, chs []juiceshop.Challenge, scoring map[int]int) Progress {
+	var p Progress
 	idx := map[string]int{}
 	for _, c := range chs {
 		if c.Disabled() {
@@ -293,18 +353,30 @@ func Summary(st *State, chs []juiceshop.Challenge, scoring map[int]int) (solved,
 		}
 		i, ok := idx[c.Category]
 		if !ok {
-			i = len(cats)
+			i = len(p.Categories)
 			idx[c.Category] = i
-			cats = append(cats, Category{Name: c.Category})
+			p.Categories = append(p.Categories, Category{Name: c.Category})
 		}
-		cats[i].Total++
-		total++
-		if _, ok := st.Solved[c.Key]; ok && st.Membership != nil {
-			cats[i].Solved++
-			solved++
-			score += scoring[c.Difficulty]
+		p.Categories[i].Total++
+		p.Total++
+		if c.HasCodingChallenge {
+			p.CodingTotal += len(allPhases)
+		}
+		if st.Membership == nil {
+			continue
+		}
+		if _, ok := st.Solved[c.Key]; ok {
+			p.Categories[i].Solved++
+			p.Solved++
+			p.Score += scoring[c.Difficulty]
+		}
+		for _, ph := range allPhases {
+			if _, ok := st.Coding[CodingKey{c.Key, ph}]; ok {
+				p.Coding++
+				p.Score += CodingPoints(scoring[c.Difficulty])
+			}
 		}
 	}
-	sort.Slice(cats, func(a, b int) bool { return cats[a].Name < cats[b].Name })
-	return solved, total, score, cats
+	sort.Slice(p.Categories, func(a, b int) bool { return p.Categories[a].Name < p.Categories[b].Name })
+	return p
 }

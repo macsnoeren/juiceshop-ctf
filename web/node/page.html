@@ -112,6 +112,7 @@
     <div><span class="num">{{.LocalScore}}</span><span class="label">points{{if ne $m.Status "local"}} (on this VM){{end}}</span></div>
     {{end}}
     <div><span class="num">{{.Solved}}<small>/{{.Total}}</small></span><span class="label">challenges</span></div>
+    {{if .CodingTotal}}<div><span class="num">{{.Coding}}<small>/{{.CodingTotal}}</small></span><span class="label">coding (Find it, Fix it)</span></div>{{end}}
   </div>
   {{if eq $m.Status "joined"}}<p class="hint">Central server last reached {{clock .LastReportAt}}.</p>{{end}}
   {{if .RestoreFailed}}<p class="hint"><strong>Juice Shop restarted and not all progress could be put back in it. Your score is not affected.</strong></p>{{end}}
@@ -129,7 +130,7 @@
 {{if .Recent}}
 <section class="card">
   <h2>Recently solved</h2>
-  <ul class="timeline">{{range .Recent}}<li><time>{{hm .SolvedAt}}</time> {{.Name}} <span class="diff" title="difficulty {{.Difficulty}} of 6" aria-label="difficulty {{.Difficulty}}">{{.Difficulty}}</span></li>{{end}}</ul>
+  <ul class="timeline">{{range .Recent}}<li><time>{{hm .SolvedAt}}</time> {{.Name}}{{if .Phase}} <span class="muted">· {{.Phase}}</span>{{end}} <span class="diff" title="difficulty {{.Difficulty}} of 6" aria-label="difficulty {{.Difficulty}}">{{.Difficulty}}</span></li>{{end}}</ul>
 </section>
 {{end}}
 {{end}}

@@ -50,7 +50,7 @@ func nullTS(t *time.Time) any {
 
 // studentTables are the tables Forget empties: everything about the
 // student. settings (the central server's address) is not about the student.
-var studentTables = []string{"membership", "outbox", "solves", "codes", "baseline", "standing", "status", "commands_applied", "sessions", "gate_failures"}
+var studentTables = []string{"membership", "outbox", "solves", "coding", "codes", "baseline", "coding_baseline", "standing", "status", "commands_applied", "sessions", "gate_failures"}
 
 var nodeMigrations = []string{
 	`CREATE TABLE membership (
@@ -117,6 +117,21 @@ var nodeMigrations = []string{
 	CREATE TABLE settings (
 		key   TEXT PRIMARY KEY,
 		value TEXT NOT NULL
+	);`,
+
+	// 2 — coding challenges: each phase done (find_it, fix_it), and those
+	// that were done before the join.
+	`CREATE TABLE coding (
+		key       TEXT NOT NULL,
+		phase     TEXT NOT NULL,
+		solved_at TEXT NOT NULL,
+		PRIMARY KEY (key, phase)
+	);
+	CREATE TABLE coding_baseline (
+		key   TEXT NOT NULL,
+		phase TEXT NOT NULL,
+		boot  TEXT NOT NULL,
+		PRIMARY KEY (key, phase)
 	);`,
 }
 
@@ -233,6 +248,20 @@ func (s *Store) Load() (*State, error) {
 		}
 	}
 	rows.Close()
+	rows, err = s.db.Query(`SELECT key, phase, solved_at FROM coding`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var k CodingKey
+		var at string
+		if err := rows.Scan(&k.Key, &k.Phase, &at); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		st.Coding[k] = parseTS(at)
+	}
+	rows.Close()
 	err = s.db.QueryRow(`SELECT challenges, find_it, fix_it FROM codes WHERE id = 1`).Scan(&st.ContinueCodes.Challenges, &st.ContinueCodes.FindIt, &st.ContinueCodes.FixIt)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
@@ -248,6 +277,19 @@ func (s *Store) Load() (*State, error) {
 			return nil, err
 		}
 		st.Baseline = append(st.Baseline, k)
+	}
+	rows.Close()
+	rows, err = s.db.Query(`SELECT key, phase, boot FROM coding_baseline ORDER BY key, phase`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var k CodingKey
+		if err := rows.Scan(&k.Key, &k.Phase, &st.BaselineBoot); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		st.CodingBaseline = append(st.CodingBaseline, k)
 	}
 	rows.Close()
 	var sd Standing
@@ -292,7 +334,7 @@ func (s *Store) Save(st *State) error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, t := range []string{"membership", "outbox", "solves", "codes", "baseline", "standing", "status", "commands_applied"} {
+	for _, t := range []string{"membership", "outbox", "solves", "coding", "codes", "baseline", "coding_baseline", "standing", "status", "commands_applied"} {
 		if _, err := tx.Exec(`DELETE FROM ` + t); err != nil {
 			return err
 		}
@@ -324,6 +366,11 @@ func (s *Store) Save(st *State) error {
 			return err
 		}
 	}
+	for k, at := range st.Coding {
+		if _, err := tx.Exec(`INSERT INTO coding (key, phase, solved_at) VALUES (?, ?, ?)`, k.Key, k.Phase, ts(at)); err != nil {
+			return err
+		}
+	}
 	if !st.ContinueCodes.Empty() {
 		c := st.ContinueCodes
 		if _, err := tx.Exec(`INSERT INTO codes (id, challenges, find_it, fix_it) VALUES (1, ?, ?, ?)`, c.Challenges, c.FindIt, c.FixIt); err != nil {
@@ -332,6 +379,11 @@ func (s *Store) Save(st *State) error {
 	}
 	for _, k := range st.Baseline {
 		if _, err := tx.Exec(`INSERT INTO baseline (key, boot) VALUES (?, ?)`, k, st.BaselineBoot); err != nil {
+			return err
+		}
+	}
+	for _, k := range st.CodingBaseline {
+		if _, err := tx.Exec(`INSERT INTO coding_baseline (key, phase, boot) VALUES (?, ?, ?)`, k.Key, k.Phase, st.BaselineBoot); err != nil {
 			return err
 		}
 	}

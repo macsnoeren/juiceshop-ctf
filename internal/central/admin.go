@@ -25,11 +25,14 @@ import (
 // reverse proxy in front of <base>/admin/ is a good second lock.
 //
 //	GET  <base>/admin/                                games, settings
-//	POST <base>/admin/games                           create (join code shown once)
-//	GET  <base>/admin/games/{id}                      a game and its participants
+//	POST <base>/admin/games                           create
+//	GET  <base>/admin/games/{id}                      a game, its join code and its participants
+//	GET  <base>/admin/games/{id}/beamer               the board AND the join code, full screen
+//	GET  <base>/admin/games/{id}/board.json           what that beamer refreshes from
 //	POST <base>/admin/games/{id}/edit                 name, window, scoring, board options
 //	POST <base>/admin/games/{id}/state                open | running | closed (closing: type the name)
-//	POST <base>/admin/games/{id}/code                 a new join code (shown once)
+//	POST <base>/admin/games/{id}/joining              to=closed | open: new students out or in again
+//	POST <base>/admin/games/{id}/code                 a new join code
 //	POST <base>/admin/games/{id}/clear                every participant out, VMs told forget (type the name)
 //	POST <base>/admin/games/{id}/delete               the same, and the game (type the name)
 //	GET  <base>/admin/games/{id}/export.csv           the participants
@@ -51,6 +54,8 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 	}))
 	mux.HandleFunc("POST "+b+"/games/{id}/{action}", s.action(s.handleGameAction))
 	mux.HandleFunc("GET "+b+"/games/{id}/export.csv", s.requireUser(s.handleExport))
+	mux.HandleFunc("GET "+b+"/games/{id}/beamer", s.requireUser(s.handleAdminBeamer))
+	mux.HandleFunc("GET "+b+"/games/{id}/board.json", s.requireUser(s.handleAdminBoardJSON))
 	mux.HandleFunc("POST "+b+"/participants/{id}/{action}", s.action(s.handleParticipantAction))
 	mux.HandleFunc("GET "+b+"/events", s.requireUser(s.handleEvents))
 	mux.HandleFunc("GET "+b+"/events.csv", s.requireUser(s.handleEventsCSV))
@@ -144,9 +149,6 @@ func (s *Server) admin(r *http.Request, e store.Event) {
 type flash struct {
 	Message string
 	Error   string
-	// Code is a join code, shown once: right after the game was made or the
-	// code regenerated. It is never stored, so it can never be shown again.
-	Code string
 }
 
 type adminHomeData struct {
@@ -227,13 +229,13 @@ func (s *Server) handleCreateGame(w http.ResponseWriter, r *http.Request) {
 		s.adminHome(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
-	g, code, err := s.st.CreateGame(in, s.now())
+	g, _, err := s.st.CreateGame(in, s.now())
 	if err != nil {
 		s.adminHome(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	s.admin(r, store.Event{GameID: g.ID, Text: "game created: " + g.Name + " (draft)"})
-	s.gamePage(w, r, g, http.StatusOK, flash{Message: "Game created, in draft: students cannot join until you open it.", Code: code})
+	s.gamePage(w, r, g, http.StatusOK, flash{Message: "Game created, in draft: students cannot join until you open it."})
 }
 
 func (s *Server) adminGame(w http.ResponseWriter, r *http.Request) (*store.Game, bool) {
@@ -334,15 +336,30 @@ func (s *Server) handleGameAction(w http.ResponseWriter, r *http.Request) {
 		what := map[string]string{protocol.StateOpen: "opened for joining", protocol.StateRunning: "started (running)", protocol.StateClosed: "ended (closed): no joins, no solves counted, board frozen"}[to]
 		s.admin(r, store.Event{GameID: g.ID, Text: "game " + what})
 		back("The game is now " + to + ".")
+	case "joining":
+		closed := r.PostFormValue("to") == "closed"
+		if !closed && r.PostFormValue("to") != "open" {
+			refuse(http.StatusBadRequest, "Joining can be closed or open.")
+			return
+		}
+		if err := s.st.SetJoiningClosed(g.ID, closed); err != nil {
+			s.fail(w, err)
+			return
+		}
+		if closed {
+			s.admin(r, store.Event{GameID: g.ID, Text: "joining closed: nobody new can join; those in the game play on"})
+			back("Joining is closed. Those in the game play on; the beamer no longer shows the code.")
+		} else {
+			s.admin(r, store.Event{GameID: g.ID, Text: "joining opened again"})
+			back("Joining is open again.")
+		}
 	case "code":
-		code, err := s.st.RegenerateCode(g.ID)
-		if err != nil {
+		if _, err := s.st.RegenerateCode(g.ID); err != nil {
 			s.fail(w, err)
 			return
 		}
 		s.admin(r, store.Event{GameID: g.ID, Text: "join code regenerated; the old code no longer admits anyone"})
-		g2, _ := s.st.Game(g.ID)
-		s.gamePage(w, r, g2, http.StatusOK, flash{Message: "New join code. The old one no longer works; students who joined keep playing.", Code: code})
+		back("New join code. The old one no longer works; students who joined keep playing.")
 	case "clear":
 		if !confirmed(r, g) {
 			refuse(http.StatusBadRequest, needName)
@@ -369,6 +386,59 @@ func (s *Server) handleGameAction(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// joinInfo is what the beamer in admin shows of joining: the code while a
+// student can join with it, nothing otherwise.
+type joinInfo struct {
+	Show bool   `json:"show"`
+	Code string `json:"code,omitempty"`
+}
+
+func joinOf(g *store.Game, now time.Time) *joinInfo {
+	if g.Code == "" || !g.Joinable(now) {
+		return &joinInfo{}
+	}
+	return &joinInfo{Show: true, Code: protocol.FormatCode(g.Code)}
+}
+
+// handleAdminBeamer is the public beamer with the join code on it, for the
+// one screen in the classroom. It is in admin, behind the login, because the
+// public board is reachable by anybody: the code there would let anyone in.
+// It works for a draft or a hidden board too, so it can be up before the
+// game opens; the code appears when it does.
+func (s *Server) handleAdminBeamer(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.adminGame(w, r)
+	if !ok {
+		return
+	}
+	now := s.now()
+	b, err := s.st.Board(g, now)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.render(w, http.StatusOK, "beamer", beamerPage{boardPage{s.base(g), b},
+		s.adminPath(fmt.Sprintf("/games/%d/board.json", g.ID)), joinOf(g, now)})
+}
+
+// handleAdminBoardJSON is board.json with "join" added, so the beamer in
+// admin follows the operator closing joining or making a new code.
+func (s *Server) handleAdminBoardJSON(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.adminGame(w, r)
+	if !ok {
+		return
+	}
+	now := s.now()
+	b, err := s.st.Board(g, now)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, struct {
+		*store.Board
+		Join *joinInfo `json:"join"`
+	}{b, joinOf(g, now)})
 }
 
 func (s *Server) handleParticipantAction(w http.ResponseWriter, r *http.Request) {
@@ -465,7 +535,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+g.Slug+`.csv"`)
 	cw := csv.NewWriter(w)
-	cw.Write([]string{"participant", "name", "status", "rank", "score", "solved", "joined_at", "left_at", "last_report_at", "node_version", "avg_cheat", "flags"})
+	cw.Write([]string{"participant", "name", "status", "rank", "score", "solved", "coding", "joined_at", "left_at", "last_report_at", "node_version", "avg_cheat", "flags"})
 	for _, p := range ps {
 		avg := ""
 		if p.AvgCheat != nil {
@@ -476,7 +546,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 			fl = append(fl, f.Text)
 		}
 		cw.Write([]string{strconv.FormatInt(p.ID, 10), csvSafe(p.Name), p.Status(), strconv.Itoa(p.Rank), strconv.Itoa(p.Score),
-			strconv.Itoa(p.Solved), csvTime(&p.JoinedAt), csvTime(p.LeftAt), csvTime(p.LastReportAt), csvSafe(p.NodeVersion), avg, csvSafe(strings.Join(fl, "; "))})
+			strconv.Itoa(p.Solved), strconv.Itoa(p.Coding), csvTime(&p.JoinedAt), csvTime(p.LeftAt), csvTime(p.LastReportAt), csvSafe(p.NodeVersion), avg, csvSafe(strings.Join(fl, "; "))})
 	}
 	cw.Flush()
 }

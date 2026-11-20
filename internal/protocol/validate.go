@@ -106,6 +106,26 @@ func (r *Report) Validate() error {
 			return invalid("solve %q: cheat score must be 0 to 1", s.Key)
 		}
 	}
+	if len(r.Coding) > MaxCoding {
+		return invalid("%d coding phases, at most %d", len(r.Coding), MaxCoding)
+	}
+	seenPhase := make(map[CodingSolve]bool, len(r.Coding))
+	for i, c := range r.Coding {
+		if !keyRE.MatchString(c.Key) {
+			return invalid("coding %d: key", i)
+		}
+		if c.Phase != PhaseFindIt && c.Phase != PhaseFixIt {
+			return invalid("coding %q: phase must be %q or %q", c.Key, PhaseFindIt, PhaseFixIt)
+		}
+		k := CodingSolve{Key: c.Key, Phase: c.Phase}
+		if seenPhase[k] {
+			return invalid("coding %q %s listed twice", c.Key, c.Phase)
+		}
+		seenPhase[k] = true
+		if c.SolvedAt.IsZero() {
+			return invalid("coding %q %s: solved_at missing", c.Key, c.Phase)
+		}
+	}
 	if len(r.CommandsApplied) > MaxCommandsApplied {
 		return invalid("too many commands_applied")
 	}

@@ -38,6 +38,7 @@ type ReportResult struct {
 	Outcome     ReportOutcome
 	Participant *Participant
 	NewSolves   int
+	NewCoding   int
 }
 
 // Report folds one report into the database, in one transaction, and returns
@@ -54,7 +55,9 @@ type ReportResult struct {
 //   - a solve received when the game no longer accepts solves is stored, so
 //     the operator sees it, but not counted;
 //   - keys the catalogue does not know are ignored: a key cannot be worth
-//     anything the central server did not decide.
+//     anything the central server did not decide;
+//   - coding phases follow the same rules, in coding_solves, and only for
+//     challenges the catalogue gives a coding challenge.
 func (s *Store) Report(tokenHash string, r *protocol.Report, now time.Time, addr string) (protocol.ReportResponse, ReportResult, error) {
 	var resp protocol.ReportResponse
 	tx, err := s.db.Begin()
@@ -189,6 +192,14 @@ func (s *Store) Report(tokenHash string, r *protocol.Report, now time.Time, addr
 			return resp, ReportResult{}, err
 		}
 	}
+	freshCoding, unknownCoding, err := mergeCoding(tx, p, g, r.Coding, limit, counted, now)
+	if err != nil {
+		return resp, ReportResult{}, err
+	}
+	unknown += unknownCoding
+	if freshCoding > 0 {
+		changed = true
+	}
 	if len(fresh) > 0 {
 		changed = true
 		more, err := solveFlags(tx, p, g, fresh)
@@ -213,7 +224,11 @@ func (s *Store) Report(tokenHash string, r *protocol.Report, now time.Time, addr
 		if r.RestoreFailed {
 			shop += ", restore failed"
 		}
-		text := fmt.Sprintf("report: %d solves, %d new; %s; node %s", len(r.Solves), len(fresh), shop, r.Node.Version)
+		text := fmt.Sprintf("report: %d solves, %d new", len(r.Solves), len(fresh))
+		if len(r.Coding) > 0 {
+			text += fmt.Sprintf("; %d coding phases, %d new", len(r.Coding), freshCoding)
+		}
+		text += fmt.Sprintf("; %s; node %s", shop, r.Node.Version)
 		if unknown > 0 {
 			text += fmt.Sprintf("; %d unknown challenge keys ignored", unknown)
 		}
@@ -240,7 +255,58 @@ func (s *Store) Report(tokenHash string, r *protocol.Report, now time.Time, addr
 	if resp.Standing, err = s.StandingOf(g, p.ID, now); err != nil {
 		return resp, ReportResult{}, err
 	}
-	return resp, ReportResult{Outcome: ReportMerged, Participant: p, NewSolves: len(fresh)}, nil
+	return resp, ReportResult{Outcome: ReportMerged, Participant: p, NewSolves: len(fresh), NewCoding: freshCoding}, nil
+}
+
+// mergeCoding stores the coding phases of a report that are new for this
+// participant, by Report's rules, and returns how many were new and how many
+// were ignored (not a coding challenge of the catalogue).
+func mergeCoding(tx *sql.Tx, p *Participant, g *Game, phases []protocol.CodingSolve, limit time.Time, counted bool, now time.Time) (int, int, error) {
+	if len(phases) == 0 {
+		return 0, 0, nil
+	}
+	known := map[protocol.CodingSolve]bool{}
+	rows, err := tx.Query(`SELECT challenge_key, phase FROM coding_solves WHERE participant_id = ?`, p.ID)
+	if err != nil {
+		return 0, 0, err
+	}
+	for rows.Next() {
+		var k protocol.CodingSolve
+		if err := rows.Scan(&k.Key, &k.Phase); err != nil {
+			rows.Close()
+			return 0, 0, err
+		}
+		known[k] = true
+	}
+	rows.Close()
+	fresh, unknown := 0, 0
+	for _, cs := range phases {
+		c, ok := juiceshop.Lookup(cs.Key)
+		if !ok || !c.HasCodingChallenge {
+			unknown++
+			continue
+		}
+		if known[protocol.CodingSolve{Key: cs.Key, Phase: cs.Phase}] {
+			continue
+		}
+		at := cs.SolvedAt
+		if at.After(limit) {
+			at = now
+		}
+		if _, err := tx.Exec(`INSERT INTO coding_solves (participant_id, challenge_key, phase, solved_at, received_at, counted) VALUES (?, ?, ?, ?, ?, ?)`,
+			p.ID, cs.Key, cs.Phase, ts(at), ts(now), counted); err != nil {
+			return 0, 0, err
+		}
+		fresh++
+		text := fmt.Sprintf("coding challenge %s: %s (%d★, %s)", protocol.PhaseName(cs.Phase), c.Name, c.Difficulty, c.Category)
+		if !counted {
+			text += "; NOT counted: the game no longer accepts solves"
+		}
+		if err := addEvent(tx, Event{At: now, Kind: EvSolve, GameID: g.ID, ParticipantID: p.ID, Text: text}); err != nil {
+			return 0, 0, err
+		}
+	}
+	return fresh, unknown, nil
 }
 
 // The flags: things an honest node never sends. They

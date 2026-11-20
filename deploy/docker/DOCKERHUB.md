@@ -20,8 +20,8 @@ docker run -d --name ctf-central -p 8080:8080 \
 Then open `http://<host>:8080/admin/`. **A fresh server has no admin
 account**: the setup page asks for the one-time setup code the server prints
 to its log at start (`docker logs ctf-central | grep setup_code`). After
-that: make a game, show its join code, and put
-`http://<host>:8080/g/<game>/beamer` on the beamer.
+that: make a game, and put its *Beamer with join code* (in admin) on the
+beamer.
 
 Point the students' VMs at it on their CTF page (*Central server*), or build
 the VM with another default.

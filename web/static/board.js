@@ -8,7 +8,8 @@
 // place when ranks change (FLIP: measure, re-render, animate the difference),
 // flashes a row that just scored, reloads the chart, and on the beamer
 // counts down to the end and switches to the final result when the game
-// closes.
+// closes. On admin's beamer it also shows or hides the join code, from the
+// "join" that only admin's board.json carries.
 //
 // Every value goes into the page through textContent or setAttribute, never
 // innerHTML, so a name can never become markup, whatever got through.
@@ -165,7 +166,7 @@
   function ticker(d) {
     var list = document.getElementById('ticker');
     if (!list) return;
-    var key = d.ticker.map(function (t) { return t.participant + t.challenge; }).join(',');
+    var key = d.ticker.map(function (t) { return t.participant + t.challenge + (t.phase || ''); }).join(',');
     if (key === lastTicker) return;
     var seen = {};
     list.querySelectorAll('li[data-k]').forEach(function (li) { seen[li.getAttribute('data-k')] = true; });
@@ -174,13 +175,14 @@
     var frag = document.createDocumentFragment();
     if (!d.ticker.length) frag.appendChild(el('li', 'muted', 'Nothing solved yet.'));
     d.ticker.forEach(function (t) {
-      var k = t.participant + ':' + t.challenge;
+      var k = t.participant + ':' + t.challenge + (t.phase ? ':' + t.phase : '');
       var cls = (t.first_blood ? 'first' : '') + (!first && !seen[k] && !calm ? ' new' : '');
       var li = el('li', cls.trim());
       li.setAttribute('data-k', k);
       li.appendChild(el('time', '', hm(t.at)));
       li.appendChild(link(base + 'p/' + t.participant, t.name, 'plain strong'));
       li.appendChild(link(base + 'c/' + t.challenge, t.challenge_name, 'plain muted'));
+      if (t.phase_name) li.appendChild(el('span', 'badge coding', t.phase_name));
       li.appendChild(diff(t.difficulty));
       if (t.first_blood) li.appendChild(el('span', 'badge blood', 'first blood'));
       frag.appendChild(li);
@@ -188,11 +190,22 @@
     list.replaceChildren(frag);
   }
 
+  // The markup is beamer.html's "joinbar": the section stays in the page,
+  // hidden, so a code made or reopened later can appear without a reload.
+  function join(j) {
+    var box = document.getElementById('join');
+    var code = document.getElementById('joincode');
+    if (!box || !code || !j) return;
+    code.textContent = j.show ? j.code : '';
+    box.hidden = !j.show;
+  }
+
   function render(d) {
     if (beamer && d.game.state === 'closed' && !wasFinal) {
       location.reload(); // the final-result view
       return;
     }
+    join(d.join);
     podium(d);
     rows(d);
     ticker(d);

@@ -271,7 +271,7 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		s.noise(store.Event{At: now, Kind: store.EvJoinRefused, Address: addr, Text: "unknown join code (403), name " + req.Name})
 		apiError(w, http.StatusForbidden, err.Error())
 		return
-	case errors.Is(err, store.ErrGameDraft), errors.Is(err, store.ErrGameClosed):
+	case errors.Is(err, store.ErrGameDraft), errors.Is(err, store.ErrGameClosed), errors.Is(err, store.ErrJoiningClosed):
 		s.noise(store.Event{At: now, Kind: store.EvJoinRefused, GameID: gid, Address: addr, Text: err.Error() + " (409), name " + req.Name})
 		apiError(w, http.StatusConflict, err.Error())
 		return

@@ -24,7 +24,7 @@ var examples = map[string]struct {
 	"join":          {`{"protocol":2,"name":"Zoë","code":"4ffpq7tq9f","joined_at":"2026-11-19T09:00:00Z","node":{"uid":"0123456789abcdef0123456789abcdef","version":"v1.1.0","juiceshop":"20.3.0"}}`, &JoinRequest{}},
 	"join-answer":   {`{"participant":41,"token":"ctfp_00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff","name":"Zoë","game":{"id":7,"name":"Class 2A","slug":"class-2a","state":"running","ends_at":"2026-11-19T11:00:00Z"},"board":"https://ctf.example.org/g/class-2a/"}`, &JoinResponse{}},
 	"error":         {`{"error":"unknown join code"}`, &ErrorResponse{}},
-	"report":        {`{"protocol":2,"sent_at":"2026-11-19T09:30:00Z","boot":"2026-11-19T08:59:12.431Z","node":{"uid":"0123456789abcdef0123456789abcdef","version":"v1.1.0","juiceshop":"20.3.0"},"juiceshop_reachable":true,"restore_failed":false,"solves":[{"key":"scoreBoardChallenge","solved_at":"2026-11-19T09:05:00Z","cheat":0.1},{"key":"directoryListingChallenge","solved_at":"2026-11-19T09:20:00Z"}],"commands_applied":["c-1a2b3c"]}`, &Report{}},
+	"report":        {`{"protocol":2,"sent_at":"2026-11-19T09:30:00Z","boot":"2026-11-19T08:59:12.431Z","node":{"uid":"0123456789abcdef0123456789abcdef","version":"v1.1.0","juiceshop":"20.3.0"},"juiceshop_reachable":true,"restore_failed":false,"solves":[{"key":"scoreBoardChallenge","solved_at":"2026-11-19T09:05:00Z","cheat":0.1},{"key":"directoryListingChallenge","solved_at":"2026-11-19T09:20:00Z"}],"coding":[{"key":"scoreBoardChallenge","phase":"find_it","solved_at":"2026-11-19T09:12:00Z"},{"key":"scoreBoardChallenge","phase":"fix_it","solved_at":"2026-11-19T09:14:00Z"}],"commands_applied":["c-1a2b3c"]}`, &Report{}},
 	"report-answer": {`{"standing":{"rank":2,"of":18,"score":1350},"game":{"state":"running","ends_at":"2026-11-19T11:00:00Z"},"commands":[{"id":"c-1a2b3c","type":"forget"}]}`, &ReportResponse{}},
 	"leave":         {`{"protocol":2,"reason":"forget"}`, &LeaveRequest{}},
 }
@@ -99,6 +99,16 @@ func TestReportValidation(t *testing.T) {
 				r.Solves = append(r.Solves, Solve{Key: "k" + strings.Repeat("x", i%70) + string(rune('a'+i%26)) + itoa(i), SolvedAt: r.SentAt})
 			}
 		}},
+		{"coding key", func(r *Report) { r.Coding[0].Key = "a/b" }},
+		{"coding phase", func(r *Report) { r.Coding[0].Phase = "solve_it" }},
+		{"coding phase twice", func(r *Report) { r.Coding[1].Phase = r.Coding[0].Phase }},
+		{"coding without solved_at", func(r *Report) { r.Coding[0].SolvedAt = time.Time{} }},
+		{"501 coding phases", func(r *Report) {
+			r.Coding = nil
+			for i := range MaxCoding + 1 {
+				r.Coding = append(r.Coding, CodingSolve{Key: "k" + itoa(i), Phase: PhaseFindIt, SolvedAt: r.SentAt})
+			}
+		}},
 		{"command id", func(r *Report) { r.CommandsApplied = []string{"bad id!"} }},
 		{"too many commands", func(r *Report) { r.CommandsApplied = make([]string, MaxCommandsApplied+1) }},
 	}
@@ -113,6 +123,11 @@ func TestReportValidation(t *testing.T) {
 	r.Solves = append(r.Solves, Solve{Key: "edgeCheat", SolvedAt: r.SentAt, Cheat: f(1)})
 	if err := r.Validate(); err != nil {
 		t.Errorf("a cheat score of exactly 1 is valid: %v", err)
+	}
+	r = validReport()
+	r.Coding = append(r.Coding, CodingSolve{Key: "loginAdminChallenge", Phase: PhaseFindIt, SolvedAt: r.SentAt})
+	if err := r.Validate(); err != nil {
+		t.Errorf("a coding phase without its hacking challenge is valid (Juice Shop can open them first): %v", err)
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/macsnoeren/juiceshop-ctf/internal/juiceshop"
 	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
@@ -32,6 +33,9 @@ func TestNodeDBModesAndMigrations(t *testing.T) {
 	st := newState()
 	st.Membership = &Membership{Status: StatusLocal, Name: "Zoë", NodeUID: protocol.NewNodeUID(), JoinedAt: time.Now()}
 	st.Solved["scoreBoardChallenge"] = time.Now()
+	st.Coding[CodingKey{"scoreBoardChallenge", protocol.PhaseFindIt}] = time.Now()
+	st.CodingBaseline = []CodingKey{{"loginAdminChallenge", protocol.PhaseFindIt}}
+	st.BaselineBoot = "boot-1"
 	if err := db.Save(st); err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +48,8 @@ func TestNodeDBModesAndMigrations(t *testing.T) {
 	defer db.Close()
 	v2, _ := db.SchemaVersion()
 	got, _ := db.Load()
-	if v1 != 1 || v2 != 1 || got.Membership == nil || len(got.Solved) != 1 {
+	if want := len(nodeMigrations); v1 != want || v2 != want || got.Membership == nil || len(got.Solved) != 1 ||
+		len(got.Coding) != 1 || len(got.CodingBaseline) != 1 || got.BaselineBoot != "boot-1" {
 		t.Errorf("schema %d→%d, state %+v", v1, v2, got)
 	}
 	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o700 {
@@ -172,6 +177,99 @@ func TestBaselineAtJoin(t *testing.T) {
 	}
 }
 
+// ---- coding challenges: recorded, reported, restored like solves ----
+
+func TestCodingPhasesAreRecordedReportedAndRestored(t *testing.T) {
+	c := newCentral(t)
+	g, code := c.game(t, "Lab")
+	h := newHarness(t, Config{DefaultCentralURL: c.URL})
+	h.poll()
+	h.join("Zoë", code)
+	h.shop.solve("scoreBoardChallenge")
+	h.shop.code("scoreBoardChallenge", juiceshop.CodingFound)
+	h.poll()
+	if err := h.report(); err != nil {
+		t.Fatal(err)
+	}
+	if s := h.n.st.Standing; s == nil || s.Score != 150 {
+		t.Errorf("after Find it: standing %+v, want 100 + 50", s)
+	}
+	h.shop.code("scoreBoardChallenge", juiceshop.CodingFixed)
+	h.poll()
+	rep, _, _, _ := h.n.BuildReport()
+	if len(rep.Coding) != 2 || rep.Coding[0].Phase != protocol.PhaseFindIt || rep.Coding[1].Phase != protocol.PhaseFixIt {
+		t.Fatalf("coding in the report: %+v", rep.Coding)
+	}
+	if err := h.report(); err != nil {
+		t.Fatal(err)
+	}
+	if s := h.n.st.Standing; s == nil || s.Score != 200 {
+		t.Errorf("after Fix it: standing %+v, want 200", s)
+	}
+	if ps := c.participants(t, g); ps[0].Solved != 1 || ps[0].Coding != 2 {
+		t.Errorf("central: %d solved, %d coding", ps[0].Solved, ps[0].Coding)
+	}
+	if v := h.n.View(); v.Coding != 2 || v.CodingTotal != 6 || v.LocalScore != 200 {
+		t.Errorf("page: coding %d/%d, local score %d", v.Coding, v.CodingTotal, v.LocalScore)
+	}
+	if body := h.req("GET", "/ctf/", nil).Body.String(); !strings.Contains(body, "Fix it") {
+		t.Error("the page does not show the coding phases")
+	}
+
+	// Juice Shop restarts: the find-it and fix-it codes bring the coding
+	// progress back, and nothing is reported as lost.
+	first := h.n.st.Coding[CodingKey{"scoreBoardChallenge", protocol.PhaseFindIt}]
+	h.shop.restart()
+	h.poll()
+	if s := h.shop.codingStatus("scoreBoardChallenge"); s != juiceshop.CodingFixed || h.n.st.RestoreFailed {
+		t.Errorf("after the restart: coding status %d in the shop, restore_failed %v", s, h.n.st.RestoreFailed)
+	}
+	if got := h.n.st.Coding[CodingKey{"scoreBoardChallenge", protocol.PhaseFindIt}]; !got.Equal(first) {
+		t.Error("the restore moved the first time of a coding phase")
+	}
+
+	// only coding progress lost: still a restore, and flagged when it fails
+	h.shop.code("scoreBoardChallenge", juiceshop.CodingNone)
+	h.shop.restart()
+	h.shop.solve("scoreBoardChallenge")
+	h.shop.applyFails = true
+	h.poll()
+	if !h.n.st.RestoreFailed {
+		t.Error("lost coding progress that could not be restored is not flagged")
+	}
+	h.shop.applyFails = false
+
+	h.open(Config{DefaultCentralURL: c.URL})
+	if len(h.n.st.Coding) != 2 {
+		t.Error("node.db lost the coding phases across a restart of ctf-node")
+	}
+	if w := h.submit("/ctf/forget", url.Values{"confirm": {"forget"}}); w.Code != 200 {
+		t.Fatal(w.Code)
+	}
+	assertForgotten(t, h)
+}
+
+func TestCodingBeforeTheJoinDoesNotCount(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.shop.solve("scoreBoardChallenge")
+	h.shop.code("scoreBoardChallenge", juiceshop.CodingFound) // from before the join
+	h.poll()
+	h.join("Sanne de Vries", "")
+	h.shop.code("scoreBoardChallenge", juiceshop.CodingFixed)
+	h.shop.solve("loginAdminChallenge")
+	h.shop.code("loginAdminChallenge", juiceshop.CodingFound)
+	h.poll()
+	want := map[CodingKey]bool{{"scoreBoardChallenge", protocol.PhaseFixIt}: true, {"loginAdminChallenge", protocol.PhaseFindIt}: true}
+	if len(h.n.st.Coding) != len(want) {
+		t.Errorf("coding %v, want %v", h.n.st.Coding, want)
+	}
+	for k := range want {
+		if _, ok := h.n.st.Coding[k]; !ok {
+			t.Errorf("%v after the join does not count", k)
+		}
+	}
+}
+
 func TestWebhook(t *testing.T) {
 	h := newHarness(t, Config{PollInterval: time.Hour, PollDebounce: 300 * time.Millisecond})
 	srv := httptest.NewServer(h.n.WebhookHandler())
@@ -237,6 +335,14 @@ func TestJoinKeepsTheTokenNotTheCode(t *testing.T) {
 	w := h2.submit("/ctf/join", url.Values{"name": {"Bram"}, "code": {"23456789ab"}})
 	if w.Code != 403 || !strings.Contains(w.Body.String(), "Unknown join code") || h2.n.st.Membership != nil {
 		t.Errorf("a wrong code: %d, membership %v", w.Code, h2.n.st.Membership)
+	}
+
+	// The teacher closed joining: the student is told so, in words.
+	c.st.SetJoiningClosed(g.ID, true)
+	h3 := newHarness(t, Config{DefaultCentralURL: c.URL})
+	w = h3.submit("/ctf/join", url.Values{"name": {"Late Ada"}, "code": {code}})
+	if w.Code != 409 || !strings.Contains(w.Body.String(), "joining this game is closed; ask your teacher") || h3.n.st.Membership != nil {
+		t.Errorf("joining closed: %d, membership %v", w.Code, h3.n.st.Membership)
 	}
 }
 
@@ -377,7 +483,7 @@ func assertForgotten(t *testing.T, h *harness) {
 			t.Errorf("table %s has %d rows after Forget", table, n)
 		}
 	}
-	if h.n.st.Membership != nil || len(h.n.st.Solved) != 0 {
+	if h.n.st.Membership != nil || len(h.n.st.Solved) != 0 || len(h.n.st.Coding) != 0 {
 		t.Error("the state in memory was not wiped")
 	}
 	if h.shop.nSolved() != 0 {

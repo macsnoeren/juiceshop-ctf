@@ -181,7 +181,7 @@ func (n *Node) BuildReport() (protocol.Report, string, string, bool) {
 		Protocol: protocol.Version, SentAt: n.now().UTC(), Boot: n.boot,
 		Node:      protocol.Node{UID: m.NodeUID, Version: n.cfg.Version, JuiceShop: n.jsVersion},
 		Reachable: n.reachable, RestoreFailed: n.st.RestoreFailed,
-		Solves: []protocol.Solve{}, CommandsApplied: append([]string{}, n.st.CommandsApplied...),
+		Solves: []protocol.Solve{}, Coding: []protocol.CodingSolve{}, CommandsApplied: append([]string{}, n.st.CommandsApplied...),
 	}
 	keys := make([]string, 0, len(n.st.Solved))
 	for k := range n.st.Solved {
@@ -196,6 +196,16 @@ func (n *Node) BuildReport() (protocol.Report, string, string, bool) {
 		}
 		r.Solves = append(r.Solves, s)
 	}
+	for k, at := range n.st.Coding {
+		r.Coding = append(r.Coding, protocol.CodingSolve{Key: k.Key, Phase: k.Phase, SolvedAt: at})
+	}
+	sort.Slice(r.Coding, func(i, j int) bool {
+		a, b := r.Coding[i], r.Coding[j]
+		if a.Key != b.Key {
+			return a.Key < b.Key
+		}
+		return a.Phase < b.Phase
+	})
 	return r, m.CentralURL, m.Token, true
 }
 

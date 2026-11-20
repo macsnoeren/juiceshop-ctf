@@ -471,11 +471,13 @@ func (n *Node) pollUntilBack(limit time.Duration) {
 
 // ---- what the page shows ---------------------------------------------------
 
-// SolveView is one solved challenge on the page.
+// SolveView is one solved challenge, or one coding phase done, on the page.
 type SolveView struct {
 	Name       string
 	Difficulty int
 	SolvedAt   time.Time
+	// Phase is "" for the hacking challenge, else "Find it" or "Fix it".
+	Phase string
 }
 
 // View is the state as the student's page sees it. It never holds the token.
@@ -485,6 +487,8 @@ type View struct {
 	QueueError      string
 	Solved          int
 	Total           int
+	Coding          int
+	CodingTotal     int
 	LocalScore      int
 	Categories      []Category
 	Recent          []SolveView
@@ -526,15 +530,21 @@ func (n *Node) View() View {
 		cp.Token, cp.ReturnCodeHash = "", ""
 		v.Membership = &cp
 	}
-	v.Solved, v.Total, v.LocalScore, v.Categories = Summary(st, n.catalogue, DefaultScoring)
+	p := Summary(st, n.catalogue, DefaultScoring)
+	v.Solved, v.Total, v.Coding, v.CodingTotal, v.LocalScore, v.Categories = p.Solved, p.Total, p.Coding, p.CodingTotal, p.Score, p.Categories
 	if st.Membership != nil {
 		for _, c := range n.catalogue {
 			if t, ok := st.Solved[c.Key]; ok {
 				v.Recent = append(v.Recent, SolveView{Name: c.Name, Difficulty: c.Difficulty, SolvedAt: t})
 			}
+			for _, ph := range allPhases {
+				if t, ok := st.Coding[CodingKey{c.Key, ph}]; ok {
+					v.Recent = append(v.Recent, SolveView{Name: c.Name, Difficulty: c.Difficulty, SolvedAt: t, Phase: protocol.PhaseName(ph)})
+				}
+			}
 		}
 	}
-	sort.Slice(v.Recent, func(i, j int) bool { return v.Recent[i].SolvedAt.After(v.Recent[j].SolvedAt) })
+	sort.SliceStable(v.Recent, func(i, j int) bool { return v.Recent[i].SolvedAt.After(v.Recent[j].SolvedAt) })
 	if len(v.Recent) > 10 {
 		v.Recent = v.Recent[:10]
 	}

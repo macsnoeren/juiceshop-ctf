@@ -53,8 +53,9 @@ What happens when a student plays:
    the outbox until the join gets through.
 2. The **watcher** polls Juice Shop's `/api/Challenges` and receives Juice
    Shop's solve webhook. It records the first time each challenge was seen
-   solved, and the continue codes.
-3. The **reporter** posts a complete snapshot of the solves to
+   solved, the first time each coding-challenge phase (Find it, Fix it) was
+   seen done, and the continue codes.
+3. The **reporter** posts a complete snapshot of the solves and coding phases to
    `/api/v2/report` every minute, and sooner after a solve.
 4. The central server scores each solve from **its own embedded copy** of the
    challenge catalogue, stores the time it received the solve, raises flags,
@@ -142,7 +143,7 @@ internal/central             ctf-central's HTTP side
   server.go                    routes, join/report/leave handlers, settings
   limit.go                     the join, login and event limits (Take: atomic)
   board.go, chart.go           the public boards per game, the score-over-time SVG
-  admin.go                     /admin/: games, participants, events, settings, CSV
+  admin.go                     /admin/: games, participants, events, settings, CSV, the beamer with join code
   auth.go                      the admin login: setup page, login/logout, sessions, users page
   password.go                  password hashing (PBKDF2-SHA256, standard library)
 internal/central/store       ctf-central's SQLite database
@@ -512,13 +513,15 @@ Two consequences for your changes:
 | Word | Means |
 |------|-------|
 | game | one CTF session, made in admin: state (draft → open → running → closed), optional start and end, scoring, a board at `/g/<slug>/` |
-| join code | 10 characters that let a VM join a game; shown once, stored as a SHA-256 hash |
+| join code | 10 characters that let a VM join a game; looked up by its SHA-256, kept readable for admin and its beamer, NEVER on a public page |
+| joining closed | the operator's switch that refuses new joins (409) while an open or running game goes on for those in it |
 | participant | a student in a game, created by a join; identified by its **token** (`ctfp_` + 64 hex), stored as a SHA-256 hash |
 | node uid | 32 hex characters a VM makes at its first join, never at boot; sent with every report |
 | boot | Juice Shop's start time, taken from the challenges' `createdAt`; a new value means Juice Shop restarted. The same token reporting two boots in turn raises the `two_boots` flag |
 | continue code | Juice Shop's own encoding of its solved set; ctf-node stores it and applies it after a restart |
-| baseline | what Juice Shop had already solved when the student joined; it does not count |
-| outbox | a join waiting for an unreachable central server: the one place the join code is ever stored |
+| baseline | what Juice Shop had already solved when the student joined, coding phases included; it does not count |
+| coding phase | `find_it` or `fix_it` of a challenge's coding challenge (Juice Shop's `codingChallengeStatus` 1 and 2); half the challenge's points each, never a solve or a first blood |
+| outbox | a join waiting for an unreachable central server: the one place a VM ever stores the join code |
 | membership status | `local` (no central server), `pending`, `joined`, `refused`, `rejected` (`state.go`) |
 | forget | wipe everything about the student on the VM and restart Juice Shop empty: the student's button, or the command an operator's *remove* or *clear* queues |
 | first blood | the first participant to solve a challenge, by time of receipt; a mark on the board, no extra points |

@@ -301,6 +301,65 @@ func TestJoin(t *testing.T) {
 	}
 }
 
+// ---- joining closed ----------------------------------------------------
+
+func TestClosedJoiningKeepsNewcomersOutAndPlayersIn(t *testing.T) {
+	st := newStore(t)
+	g, code := game(t, st, "Lesson", protocol.StateRunning)
+	in := join(t, st, code, "Zoë", t0)
+	if err := st.SetJoiningClosed(g.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	req := &protocol.JoinRequest{Protocol: 2, Name: "Late Bram", Code: code, Node: protocol.Node{UID: protocol.NewNodeUID()}}
+	req.Normalize()
+	if _, _, err := st.Join(req, at(1)); !errors.Is(err, ErrJoiningClosed) {
+		t.Fatalf("a join with joining closed: %v", err)
+	}
+	if _, res := rep(t, st, in, at(2), "b1", map[string]int{"scoreBoardChallenge": 2}); res.Outcome != ReportMerged {
+		t.Error("a player already in the game can no longer report")
+	}
+	if got := scores(t, st, g, at(3)); got["Zoë"] == 0 {
+		t.Errorf("the solve of a player in the game did not count: %v", got)
+	}
+	if g, _ := st.Game(g.ID); !g.JoiningClosed || g.Joinable(at(3)) || g.State != protocol.StateRunning {
+		t.Errorf("closing joining changed the game: %+v", g)
+	}
+	// Ending and reopening with "open for joining" opens joining as well.
+	st.SetState(g.ID, protocol.StateClosed, at(4))
+	st.SetState(g.ID, protocol.StateOpen, at(5))
+	if g, _ := st.Game(g.ID); g.JoiningClosed {
+		t.Error("open for joining left joining closed")
+	}
+	join(t, st, code, "Late Bram", at(6))
+	if err := st.SetJoiningClosed(9999, true); !errors.Is(err, ErrNotFound) {
+		t.Errorf("an unknown game: %v", err)
+	}
+}
+
+func TestJoinCodeIsKeptWithItsHash(t *testing.T) {
+	st := newStore(t)
+	g, code := game(t, st, "Kept", protocol.StateOpen)
+	if g.Code != code || !g.HasCode {
+		t.Errorf("the game holds code %q, want %q", g.Code, code)
+	}
+	code2, err := st.RegenerateCode(g.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, _ := st.Game(g.ID); g.Code != code2 || code2 == code {
+		t.Errorf("after a new code the game holds %q, want %q", g.Code, code2)
+	}
+	if gs, _ := st.Games(t0); gs[0].Code != code2 {
+		t.Errorf("the list holds code %q", gs[0].Code)
+	}
+	// A game from before codes were kept has the hash only.
+	st.db.Exec(`UPDATE games SET code = NULL WHERE id = ?`, g.ID)
+	if g, _ := st.Game(g.ID); g.Code != "" || !g.HasCode {
+		t.Errorf("a hash-only game: code %q, has %v", g.Code, g.HasCode)
+	}
+	join(t, st, code2, "Still Joins", t0)
+}
+
 // ---- reports ----------------------------------------------------------
 
 // TestFiveStudentsStayOnTheBoard: in 1.0 each new
@@ -389,6 +448,120 @@ func TestUnknownKeysAreIgnored(t *testing.T) {
 	rep(t, st, m, at(1), "b", map[string]int{"madeUpChallenge": 1, "scoreBoardChallenge": 1})
 	if sc := scores(t, st, g, at(2)); sc["Anna"] != 100 {
 		t.Errorf("score %d, want 100", sc["Anna"])
+	}
+}
+
+// ---- coding challenges: half the points, never a solve ----
+
+// repCoding sends a report with solves and coding phases (key/phase →
+// minute of doing it).
+func repCoding(t *testing.T, st *Store, m member, when time.Time, solves map[string]int, coding map[string]int) {
+	t.Helper()
+	r := &protocol.Report{Protocol: 2, SentAt: when, Boot: "b", Reachable: true,
+		Node: protocol.Node{UID: strings.Repeat("a", 32), Version: "v1.1.0-test", JuiceShop: "20.3.0"}}
+	for k, min := range solves {
+		r.Solves = append(r.Solves, protocol.Solve{Key: k, SolvedAt: at(min)})
+	}
+	for kp, min := range coding {
+		k, ph, _ := strings.Cut(kp, "/")
+		r.Coding = append(r.Coding, protocol.CodingSolve{Key: k, Phase: ph, SolvedAt: at(min)})
+	}
+	if err := r.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.Report(protocol.Hash(m.token), r, when, "192.0.2.1"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCodingPhasesScoreHalfAndAreNoSolves(t *testing.T) {
+	st := newStore(t)
+	g, code := game(t, st, "Lab", protocol.StateRunning)
+	anna := join(t, st, code, "Anna", t0)
+	ben := join(t, st, code, "Ben", t0)
+	// Ben does the coding challenge before anyone hacks it (Juice Shop can
+	// be set to allow that); it must not take Anna's first blood.
+	repCoding(t, st, ben, at(5), nil, map[string]int{"scoreBoardChallenge/find_it": 4})
+	repCoding(t, st, anna, at(10), map[string]int{"scoreBoardChallenge": 6}, map[string]int{
+		"scoreBoardChallenge/find_it": 8, "scoreBoardChallenge/fix_it": 9,
+		"privacyPolicyChallenge/find_it": 9, // has no coding challenge
+		"madeUpChallenge/fix_it":         9,
+	})
+	repCoding(t, st, anna, at(11), map[string]int{"scoreBoardChallenge": 6}, map[string]int{"scoreBoardChallenge/fix_it": 10})
+
+	var n int
+	st.db.QueryRow(`SELECT COUNT(*) FROM coding_solves`).Scan(&n)
+	if n != 3 {
+		t.Errorf("%d coding phases stored, want 3 (unknown ones ignored, a repeat is no new one)", n)
+	}
+	b, err := st.Board(g, at(12))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := map[string]BoardRow{}
+	for _, r := range b.Rows {
+		rows[r.Name] = r
+	}
+	if a := rows["Anna"]; a.Score != 200 || a.Solved != 1 || a.Coding != 2 || a.FirstBloods != 1 {
+		t.Errorf("Anna %+v: want 100 + 2×50 points, 1 solved, 2 coding, first blood", a)
+	}
+	if r := rows["Ben"]; r.Score != 50 || r.Solved != 0 || r.Coding != 1 || r.FirstBloods != 0 {
+		t.Errorf("Ben %+v: want 50 points, nothing solved", r)
+	}
+	phases := 0
+	for _, it := range b.Ticker {
+		if it.Phase != "" {
+			phases++
+			if it.FirstBlood || it.Points != 50 || it.PhaseName == "" {
+				t.Errorf("ticker %+v", it)
+			}
+		}
+	}
+	if phases != 3 || len(b.Ticker) != 4 {
+		t.Errorf("ticker has %d items, %d of them coding: %+v", len(b.Ticker), phases, b.Ticker)
+	}
+
+	cp, err := st.ChallengePage(g, "scoreBoardChallenge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cp.Solvers) != 1 || cp.Solvers[0].Name != "Anna" || len(cp.Coders) != 3 || cp.Challenge.CodingPoints != 50 {
+		t.Errorf("challenge page: %d solvers, %d coders, %d coding points", len(cp.Solvers), len(cp.Coders), cp.Challenge.CodingPoints)
+	}
+	cat, err := st.CategoryPage(g, Slugify("Miscellaneous"), at(12))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range cat.Rows {
+		for i, solved := range r.Solved {
+			if solved && r.Name == "Ben" {
+				t.Errorf("a coding phase marks %s solved for Ben", cat.Challenges[i].Key)
+			}
+		}
+	}
+	pp, err := st.ParticipantPage(g, anna.id, at(12))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pp.Solves) != 3 || len(pp.Bloods) != 1 || pp.Difficulty[0] != 1 {
+		t.Errorf("Anna's page: %d lines, %d bloods, difficulty %v", len(pp.Solves), len(pp.Bloods), pp.Difficulty)
+	}
+}
+
+func TestCodingAfterTheEndIsStoredButNotCounted(t *testing.T) {
+	st := newStore(t)
+	g, code, _ := st.CreateGame(GameInput{Name: "Timed", EndsAt: ptr(at(30))}, t0)
+	st.SetState(g.ID, protocol.StateRunning, t0)
+	g, _ = st.Game(g.ID)
+	m := join(t, st, code, "Anna", at(1))
+	repCoding(t, st, m, at(31), map[string]int{"scoreBoardChallenge": 20}, map[string]int{"scoreBoardChallenge/find_it": 30})
+	var n int
+	st.db.QueryRow(`SELECT COUNT(*) FROM coding_solves WHERE counted = 0`).Scan(&n)
+	if n != 1 {
+		t.Errorf("%d uncounted coding phases, want 1", n)
+	}
+	if sc := scores(t, st, g, at(32)); sc["Anna"] != 0 {
+		t.Errorf("score %d after the end, want 0", sc["Anna"])
 	}
 }
 

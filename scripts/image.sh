@@ -169,7 +169,7 @@ step "Forget: node.db empty, Juice Shop empty"
 rows="$(as 10001 "
 const sqlite3 = require('/juice-shop/node_modules/sqlite3');
 const db = new sqlite3.Database('/var/lib/ctf/node.db', sqlite3.OPEN_READONLY);
-const t = ['membership','outbox','solves','codes','baseline','standing','status','commands_applied','sessions','gate_failures'];
+const t = ['membership','outbox','solves','coding','codes','baseline','coding_baseline','standing','status','commands_applied','sessions','gate_failures'];
 db.all(t.map(x => 'SELECT ' + JSON.stringify(x) + ' AS t, COUNT(*) AS n FROM ' + x).join(' UNION ALL '), (e, r) => {
   if (e) { console.log('ERR ' + e); return; }
   console.log(r.filter(x => x.n > 0).map(x => x.t + '=' + x.n).join(' ') || 'empty');

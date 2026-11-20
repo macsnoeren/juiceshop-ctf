@@ -45,15 +45,25 @@
   `coding` column) show them; so does the student's page on the VM. A VM
   without this sends none, and a central server without it ignores them.
 
-**Repository**
-- Licensed under the GNU General Public License v3.0 or later (`LICENSE`):
-  every source file says so in an SPDX header, both images carry the licence
-  text and the OCI licence label, and the release notes link the source.
-- `internal/shared/*` moved up to `internal/*`; the test scripts are all in
-  `scripts/`; the students' sheet is `docs/STUDENT.md`.
-- The planning documents (`DESIGN.md`, `VERSION-1-1.md`, `TASK-1-1.md`) are
-  gone, and so are the references to them in the code.
-- `CLAUDE.md` describes the layout and the rules that keep it.
+**Central server**
+- *Beamer with join code* on a game's admin page: the board full screen with
+  the join code above it, so the classroom needs one screen. The code shows
+  only while students can join, and appears or disappears within ten seconds
+  when that changes. It is behind the admin login; the public board never
+  shows the code.
+- The join code stays visible on the game page, instead of being shown once.
+  It is now kept readable next to its hash; a game made before this shows
+  its code again after *New join code*.
+- *Close joining* / *Open joining again* on the game page: nobody new can
+  join while the game goes on for those already in it. A VM that tries is
+  told "joining this game is closed; ask your teacher" (a 409, which VMs
+  already out there show as it is).
+
+## 1.2.0
+
+The first refactored version of the OWASP Juice Shop CTF approach. Improved
+the structure of the repository and added the GPLv3 license to the project.
+Added CLAUDE.md when performing augmented AI programming of this software.
 
 ## 1.1.0
 

@@ -29,16 +29,27 @@ var ErrInvalidCode = errors.New("juice shop refused the continue code")
 
 // Challenge is one entry of GET /api/Challenges, reduced to what the agent uses.
 type Challenge struct {
-	ID                    int       `json:"id"`
-	Key                   string    `json:"key"`
-	Name                  string    `json:"name"`
-	Category              string    `json:"category"`
-	Difficulty            int       `json:"difficulty"`
-	Solved                bool      `json:"solved"`
-	DisabledEnv           *string   `json:"disabledEnv"`
-	CodingChallengeStatus int       `json:"codingChallengeStatus"`
-	CreatedAt             time.Time `json:"createdAt"`
+	ID                    int     `json:"id"`
+	Key                   string  `json:"key"`
+	Name                  string  `json:"name"`
+	Category              string  `json:"category"`
+	Difficulty            int     `json:"difficulty"`
+	Solved                bool    `json:"solved"`
+	DisabledEnv           *string `json:"disabledEnv"`
+	CodingChallengeStatus int     `json:"codingChallengeStatus"`
+	// HasCodingChallenge: Juice Shop offers a Find it and a Fix it for this
+	// challenge. Only these may carry coding progress, on either side.
+	HasCodingChallenge bool      `json:"hasCodingChallenge"`
+	CreatedAt          time.Time `json:"createdAt"`
 }
+
+// The values of CodingChallengeStatus: Fix it can only follow Find it, so a
+// status of 2 means both are done.
+const (
+	CodingNone  = 0
+	CodingFound = 1
+	CodingFixed = 2
+)
 
 // Disabled reports whether Juice Shop disables this challenge in a container.
 // Every CTF instance runs in Docker, so a challenge marked for Docker can never

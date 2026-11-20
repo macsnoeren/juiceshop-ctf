@@ -12,6 +12,7 @@
   <div class="stats">
     <div><span class="num">{{.Row.Score}}</span><span class="label">points</span></div>
     <div><span class="num">{{.Row.Solved}}</span><span class="label">challenges</span></div>
+    {{if .Row.Coding}}<div><span class="num">{{.Row.Coding}}</span><span class="label">coding (Find it, Fix it)</span></div>{{end}}
     <div><span class="num">{{len .Bloods}}</span><span class="label">first bloods</span></div>
     <div><span class="num">{{clock .Row.LastSolve}}</span><span class="label">last solve</span></div>
   </div>
@@ -39,8 +40,9 @@
   <ol class="timeline">
     {{range .Solves}}<li{{if .FirstBlood}} class="first"{{end}}><time>{{hm .At}}</time>
       <a class="plain strong" href="{{$.GBase}}c/{{.Challenge.Key}}">{{.Challenge.Name}}</a>
+      {{if .PhaseName}}<span class="badge coding">{{.PhaseName}}</span>{{end}}
       {{template "diff" .Challenge.Difficulty}}
-      <span class="muted">{{.Challenge.Category}} · {{.Challenge.Points}} points</span>
+      <span class="muted">{{.Challenge.Category}} · {{.Points}} points</span>
       {{if .FirstBlood}}<span class="badge blood">first blood</span>{{end}}</li>{{end}}
   </ol>
   {{else}}<p class="muted">Nothing solved yet.</p>{{end}}

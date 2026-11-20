@@ -32,7 +32,7 @@ No token: the join code admits the VM.
 | **201** | joined: see below. The token is in this answer **once**; the server keeps only its SHA-256 |
 | 400 | invalid name or code |
 | 403 | unknown join code (it also counts against the address: see limits) |
-| 409 | the game is a draft, closed, or past its end |
+| 409 | the game is a draft, closed, or past its end, or the operator closed joining (the game goes on for those in it) |
 | 429 | 20 wrong codes from this address in the last minute, or 300 joins of this game in a minute |
 
 ```json
@@ -55,6 +55,8 @@ or repeated report is harmless.
  "juiceshop_reachable":true,"restore_failed":false,
  "solves":[{"key":"scoreBoardChallenge","solved_at":"2026-11-19T09:05:00Z","cheat":0.1},
            {"key":"directoryListingChallenge","solved_at":"2026-11-19T09:20:00Z"}],
+ "coding":[{"key":"scoreBoardChallenge","phase":"find_it","solved_at":"2026-11-19T09:12:00Z"},
+           {"key":"scoreBoardChallenge","phase":"fix_it","solved_at":"2026-11-19T09:14:00Z"}],
  "commands_applied":["c-1a2b3c"]}
 ```
 
@@ -63,6 +65,7 @@ or repeated report is harmless.
 | `boot` | Juice Shop's start time: a new value after every restart, never an old one again |
 | `solves` | every challenge solved since the join, with the first time the VM saw it; at most 500 |
 | `cheat` | Juice Shop's own cheat score from its webhook, 0–1, when it sent one |
+| `coding` | every phase of a coding challenge done since the join: `phase` is `find_it` or `fix_it`, `key` the hacking challenge's key, `solved_at` the first time the VM saw it; at most 500. A list of its own, because Juice Shop can be set to open coding challenges before the hack is solved |
 | `commands_applied` | ids of commands carried out (none of today's commands needs it: `forget` is confirmed by the leave) |
 
 The server, per solve it has not seen for this participant:
@@ -73,7 +76,12 @@ The server, per solve it has not seen for this participant:
 - stores the **time of receipt**, which decides ties and first blood;
 - stores it as *not counted* when the game no longer accepts solves.
 
-A solve is never removed, and the first time is kept.
+A coding phase follows the same rules, and is ignored for a key whose
+challenge has no coding challenge in the catalogue. It scores half its
+challenge's points; it is not a solved challenge, so it counts in no
+"solved", no category and no first blood.
+
+A solve or coding phase is never removed, and the first time is kept.
 
 | Answer | When |
 |--------|------|
@@ -133,4 +141,5 @@ Never per address alone: a school puts a whole room behind one.
 | wrong join codes | 20 per address per minute; the 21st is 429 **before** the code is checked |
 | joins of one game | 300 per minute |
 | solves per report | 500 |
+| coding phases per report | 500 |
 | body | 256 KiB |

@@ -174,7 +174,7 @@ func TestAdminNeedsLogin(t *testing.T) {
 	e := newEnv(t)
 	id, _ := e.game("Class", nil, "running")
 	anon := e.client()
-	for _, p := range []string{"/admin/", "/admin/games/1", "/admin/games/1/export.csv", "/admin/events", "/admin/events.csv", "/admin/users"} {
+	for _, p := range []string{"/admin/", "/admin/games/1", "/admin/games/1/export.csv", "/admin/games/1/beamer", "/admin/games/1/board.json", "/admin/events", "/admin/events.csv", "/admin/users"} {
 		w := anon.get(base + p)
 		if w.Code != http.StatusSeeOther || location(w) != base+"/admin/login?next="+url.QueryEscape(base+p) {
 			t.Errorf("%s without a login: %d → %q", p, w.Code, location(w))

@@ -8,14 +8,6 @@
 {{with .Flash}}
   {{if .Error}}<p class="alert error" role="alert">{{.Error}}</p>{{end}}
   {{if .Message}}<p class="alert ok" role="status">{{.Message}}</p>{{end}}
-  {{if .Code}}
-  <section class="card codecard">
-    <h2>Join code — shown only now</h2>
-    <p class="joincode">{{code .Code}}</p>
-    <p>Put it on the beamer. Students type it with their name on their own VM's CTF page. It is stored only as a hash:
-       once you leave this page it cannot be shown again, only replaced by a new one.</p>
-  </section>
-  {{end}}
 {{end}}
 
 <div class="game-head">
@@ -24,11 +16,24 @@
     <p class="game-state"><span class="badge state-{{.State}}">{{.State}}</span>
        {{if .G.Public}}<span class="muted address">{{.BoardURL}}</span>{{else}}<span class="muted">board not public ({{if .G.BoardHidden}}hidden{{else}}draft{{end}})</span>{{end}}</p>
   </div>
-  {{if .G.Public}}<div class="buttons">
-    <a class="button" href="{{.BoardURL}}">Open the leaderboard</a>
-    <a class="button secondary" href="{{.BoardURL}}beamer">Beamer</a>
-  </div>{{end}}
+  <div class="buttons">
+    <a class="button" href="{{path "/admin/games/"}}{{.G.ID}}/beamer">Beamer with join code</a>
+    {{if .G.Public}}<a class="button secondary" href="{{.BoardURL}}">Open the leaderboard</a>{{end}}
+  </div>
 </div>
+
+{{if .G.Code}}
+<section class="card codecard">
+  <h2>Join code</h2>
+  <p class="joincode">{{code .G.Code}}</p>
+  <p>Students type it with their name on their own VM's CTF page. <em>Beamer with join code</em> shows it above the
+     board {{if .G.Joinable .Now}}now{{else if .G.JoiningClosed}}once you open joining again{{else}}once the game is open{{end}};
+     the public board and its beamer never show it.</p>
+</section>
+{{else if .G.HasCode}}
+<p class="alert" role="status">This game's join code was made before codes were kept, so it cannot be shown here or on the
+   beamer. <em>New join code</em> makes one that is; the old code then stops working.</p>
+{{end}}
 
 <section class="card">
   <h2>State</h2>
@@ -39,9 +44,13 @@
   {{if ne .G.State "running"}}
     <form class="inline" method="post" action="{{path "/admin/games/"}}{{.G.ID}}/state"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="to" value="running"><button type="submit">Start (running)</button></form>
   {{end}}
+  {{if .G.Accepting .Now}}
+    <form class="inline" method="post" action="{{path "/admin/games/"}}{{.G.ID}}/joining"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="to" value="{{if .G.JoiningClosed}}open{{else}}closed{{end}}"><button class="secondary" type="submit">{{if .G.JoiningClosed}}Open joining again{{else}}Close joining{{end}}</button></form>
+  {{end}}
     <form class="inline" method="post" action="{{path "/admin/games/"}}{{.G.ID}}/code"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="secondary" type="submit">{{if .G.HasCode}}New join code{{else}}Make a join code{{end}}</button></form>
   </div>
-  <p class="hint">Open and running both admit students and count solves. Players: {{index .Counts "active"}} on the board,
+  {{if and .G.JoiningClosed (.G.Accepting .Now)}}<p class="hint"><span class="badge warn">joining closed</span> Nobody new can join; those in the game play on and their solves count.</p>{{end}}
+  <p class="hint">Open and running both admit students and count solves; <em>Close joining</em> keeps newcomers out while the game goes on. Players: {{index .Counts "active"}} on the board,
     {{index .Counts "hidden"}} hidden, {{index .Counts "left"}} left, {{index .Counts "removed"}} removed.</p>
 </section>
 
@@ -56,7 +65,7 @@
       <td class="rank">{{if .Rank}}{{.Rank}}{{end}}</td>
       <td class="name"><span class="dot{{if online .}} on{{end}}"></span>{{.Name}}{{if .LegacyInstance}}<br><span class="muted">1.0: {{.LegacyInstance}}</span>{{end}}</td>
       <td class="n">{{.Score}}</td>
-      <td class="n">{{.Solved}}</td>
+      <td class="n">{{.Solved}}{{if .Coding}}<br><span class="muted" title="coding challenge phases: Find it, Fix it">+{{.Coding}} coding</span>{{end}}</td>
       <td>{{since .LastReportAt}}{{if and .LastReportAt (not .Reachable)}} <span class="badge warn">shop down</span>{{end}}{{if .RestoreFailed}} <span class="badge warn">restore failed</span>{{end}}</td>
       <td class="hide-narrow muted">{{.NodeVersion}}{{if .NodeUID}}<br>uid {{printf "%.8s" .NodeUID}}{{end}}</td>
       <td class="n hide-narrow">{{pct .AvgCheat}} / {{pct .MaxCheat}}</td>

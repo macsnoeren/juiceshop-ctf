@@ -27,6 +27,9 @@ var (
 	ErrUnknownCode = errors.New("unknown join code")
 	ErrGameDraft   = errors.New("this game is not open yet")
 	ErrGameClosed  = errors.New("this game is closed")
+	// ErrJoiningClosed is the operator's choice, not the game's state: the
+	// game goes on for those in it.
+	ErrJoiningClosed = errors.New("joining this game is closed; ask your teacher")
 )
 
 // Participant is one student in one game, as admin sees them.
@@ -52,6 +55,7 @@ type Participant struct {
 	// Filled in by GameParticipants.
 	Score    int
 	Solved   int
+	Coding   int
 	Rank     int
 	AvgCheat *float64
 	MaxCheat *float64
@@ -128,6 +132,8 @@ func (s *Store) Join(req *protocol.JoinRequest, now time.Time) (*JoinResult, *Ga
 		return nil, g, ErrGameDraft
 	case !g.Accepting(now):
 		return nil, g, ErrGameClosed
+	case !g.Joinable(now):
+		return nil, g, ErrJoiningClosed
 	}
 	// The node's own join time, never later than now: an offline join that
 	// waited in the outbox is older than its arrival.

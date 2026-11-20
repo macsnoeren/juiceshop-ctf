@@ -35,7 +35,7 @@
     {{range .Games}}
     <tr>
       <td><strong>{{.Name}}</strong>{{if .BoardHidden}} <span class="badge">board hidden</span>{{end}}</td>
-      <td><span class="badge state-{{.EffectiveState $.Now}}">{{.EffectiveState $.Now}}</span></td>
+      <td><span class="badge state-{{.EffectiveState $.Now}}">{{.EffectiveState $.Now}}</span>{{if and .JoiningClosed (.Accepting $.Now)}} <span class="badge warn">joining closed</span>{{end}}</td>
       <td class="n">{{.Participants}}</td>
       <td class="n">{{.Online}}</td>
       <td class="hide-narrow muted">{{if .StartsAt}}{{datetime .StartsAt}}{{end}}{{if .EndsAt}} – {{datetime .EndsAt}}{{end}}</td>

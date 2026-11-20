@@ -32,11 +32,13 @@ import "time"
 const Version = 2
 
 // Limits. MaxBodyBytes is enforced by ctf-central before decoding; the others
-// by the Validate methods. Juice Shop 20.3 has 116 challenges, so 500 is room
-// for growth, not a target.
+// by the Validate methods. Juice Shop 20.3 has 116 challenges, 35 of them
+// with a coding challenge (70 phases), so 500 is room for growth, not a
+// target.
 const (
 	MaxBodyBytes       = 256 << 10
 	MaxSolves          = 500
+	MaxCoding          = 500
 	MaxCommandsApplied = 100
 )
 
@@ -118,6 +120,29 @@ type Solve struct {
 	Cheat    *float64  `json:"cheat,omitempty"`
 }
 
+// The two phases of a coding challenge: Juice Shop's "Find it" (pick the
+// vulnerable lines) and "Fix it" (pick the right fix).
+const (
+	PhaseFindIt = "find_it"
+	PhaseFixIt  = "fix_it"
+)
+
+// PhaseName is a phase as Juice Shop's score board names it.
+func PhaseName(phase string) string {
+	if phase == PhaseFixIt {
+		return "Fix it"
+	}
+	return "Find it"
+}
+
+// CodingSolve is one phase of a coding challenge done: the first moment the
+// node saw it. Key is the key of the hacking challenge the code belongs to.
+type CodingSolve struct {
+	Key      string    `json:"key"`
+	Phase    string    `json:"phase"`
+	SolvedAt time.Time `json:"solved_at"`
+}
+
 // Report is POST /api/v2/report, Authorization: Bearer <participant token>.
 type Report struct {
 	Protocol int       `json:"protocol"`
@@ -125,12 +150,16 @@ type Report struct {
 	// Boot identifies the running Juice Shop (its start time). A restart
 	// gives a new one that never comes back; one token reporting two boots in
 	// alternation is a copied VM.
-	Boot            string   `json:"boot"`
-	Node            Node     `json:"node"`
-	Reachable       bool     `json:"juiceshop_reachable"`
-	RestoreFailed   bool     `json:"restore_failed"`
-	Solves          []Solve  `json:"solves"`
-	CommandsApplied []string `json:"commands_applied"`
+	Boot          string  `json:"boot"`
+	Node          Node    `json:"node"`
+	Reachable     bool    `json:"juiceshop_reachable"`
+	RestoreFailed bool    `json:"restore_failed"`
+	Solves        []Solve `json:"solves"`
+	// Coding is every coding-challenge phase done since the join. It is a
+	// list of its own, not a field of Solve: Juice Shop can be configured
+	// to open coding challenges before the hacking challenge is solved.
+	Coding          []CodingSolve `json:"coding"`
+	CommandsApplied []string      `json:"commands_applied"`
 }
 
 // Standing is a participant's place on their game's board.

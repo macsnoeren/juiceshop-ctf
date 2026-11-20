@@ -25,11 +25,23 @@ import (
 //     ahead; equal score at the same moment is the same rank;
 //   - first blood of a challenge is the scoring solve RECEIVED first among
 //     those on the board. A VM cannot backdate it, and a later report never
-//     takes it away. It is a mark, worth no points.
+//     takes it away. It is a mark, worth no points;
+//   - a coding phase (Find it, Fix it) scores CodingPoints of its
+//     challenge's points by the same rules, and moves the moment a score was
+//     reached; it is NOT a solved challenge, so it counts in no "x of y",
+//     no category and no first blood.
+
+// CodingPoints is what one coding phase scores: half its challenge's points,
+// so Find it and Fix it together are worth the hack. ctf-node's local score
+// uses the same rule.
+func CodingPoints(points int) int { return points / 2 }
 
 type solveRow struct {
-	pid        int64
-	key        string
+	pid int64
+	key string
+	// phase is "" for the hacking challenge, else protocol.PhaseFindIt or
+	// PhaseFixIt: every loop over solves must tell them apart.
+	phase      string
 	name       string
 	category   string
 	difficulty int
@@ -58,6 +70,9 @@ type Challenge struct {
 	CategorySlug string `json:"category_slug"`
 	Difficulty   int    `json:"difficulty"`
 	Points       int    `json:"points"`
+	// CodingPoints is what each phase of its coding challenge scores; 0
+	// when it has none.
+	CodingPoints int `json:"coding_points,omitempty"`
 }
 
 func (s *Store) load(g *Game) (*gameData, error) {
@@ -77,19 +92,23 @@ func (s *Store) load(g *Game) (*gameData, error) {
 	}
 	rows.Close()
 
-	crow, err := s.db.Query(`SELECT key, name, category, difficulty FROM challenges WHERE disabled = 0 ORDER BY category, difficulty, name`)
+	crow, err := s.db.Query(`SELECT key, name, category, difficulty, has_coding FROM challenges WHERE disabled = 0 ORDER BY category, difficulty, name`)
 	if err != nil {
 		return nil, err
 	}
 	catIdx := map[string]int{}
 	for crow.Next() {
 		var c Challenge
-		if err := crow.Scan(&c.Key, &c.Name, &c.Category, &c.Difficulty); err != nil {
+		var coding bool
+		if err := crow.Scan(&c.Key, &c.Name, &c.Category, &c.Difficulty, &coding); err != nil {
 			crow.Close()
 			return nil, err
 		}
 		c.CategorySlug = Slugify(c.Category)
 		c.Points = g.Scoring[c.Difficulty]
+		if coding {
+			c.CodingPoints = CodingPoints(c.Points)
+		}
 		d.chals = append(d.chals, c)
 		i, ok := catIdx[c.Category]
 		if !ok {
@@ -106,7 +125,7 @@ func (s *Store) load(g *Game) (*gameData, error) {
 		s.solved_at, s.received_at, s.cheat, s.counted AND c.disabled = 0
 		FROM solves s JOIN participants p ON p.id = s.participant_id
 		JOIN challenges c ON c.key = s.challenge_key
-		WHERE p.game_id = ? ORDER BY s.received_at, s.solved_at, s.participant_id, s.challenge_key`, g.ID)
+		WHERE p.game_id = ?`, g.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +147,51 @@ func (s *Store) load(g *Game) (*gameData, error) {
 		}
 		d.solves = append(d.solves, r)
 	}
-	return d, srow.Err()
+	if err := srow.Err(); err != nil {
+		return nil, err
+	}
+	srow.Close()
+
+	krow, err := s.db.Query(`SELECT k.participant_id, k.challenge_key, k.phase, c.name, c.category, c.difficulty,
+		k.solved_at, k.received_at, k.counted AND c.disabled = 0 AND c.has_coding = 1
+		FROM coding_solves k JOIN participants p ON p.id = k.participant_id
+		JOIN challenges c ON c.key = k.challenge_key
+		WHERE p.game_id = ?`, g.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer krow.Close()
+	for krow.Next() {
+		var r solveRow
+		var solved, received string
+		if err := krow.Scan(&r.pid, &r.key, &r.phase, &r.name, &r.category, &r.difficulty, &solved, &received, &r.scores); err != nil {
+			return nil, err
+		}
+		r.solvedAt, r.receivedAt = parseTS(solved), parseTS(received)
+		if r.scores {
+			r.points = CodingPoints(g.Scoring[r.difficulty])
+		}
+		d.solves = append(d.solves, r)
+	}
+	if err := krow.Err(); err != nil {
+		return nil, err
+	}
+	// One order for both: by receipt, and a hack ("") before its phases.
+	sort.SliceStable(d.solves, func(i, j int) bool {
+		a, b := d.solves[i], d.solves[j]
+		switch {
+		case !a.receivedAt.Equal(b.receivedAt):
+			return a.receivedAt.Before(b.receivedAt)
+		case !a.solvedAt.Equal(b.solvedAt):
+			return a.solvedAt.Before(b.solvedAt)
+		case a.pid != b.pid:
+			return a.pid < b.pid
+		case a.key != b.key:
+			return a.key < b.key
+		}
+		return a.phase < b.phase
+	})
+	return d, nil
 }
 
 func onBoard(p *Participant) bool { return p.LeftAt == nil && !p.Hidden }
@@ -137,6 +200,7 @@ type ranked struct {
 	p       *Participant
 	score   int
 	solved  int
+	coding  int
 	reached time.Time
 	last    *time.Time
 	rank    int
@@ -163,10 +227,14 @@ func (d *gameData) rank() ([]*ranked, map[string]int64) {
 			continue
 		}
 		r.score += sv.points
-		r.solved++
-		r.byCat[sv.category]++
 		t := sv.receivedAt
 		r.reached, r.last = t, &t
+		if sv.phase != "" {
+			r.coding++
+			continue
+		}
+		r.solved++
+		r.byCat[sv.category]++
 		if _, taken := first[sv.key]; !taken {
 			first[sv.key] = sv.pid
 			r.bloods++
@@ -258,11 +326,13 @@ type BoardGame struct {
 
 // BoardRow is one participant on a board.
 type BoardRow struct {
-	Rank        int        `json:"rank"`
-	Participant int64      `json:"participant"`
-	Name        string     `json:"name"`
-	Score       int        `json:"score"`
-	Solved      int        `json:"solved"`
+	Rank        int    `json:"rank"`
+	Participant int64  `json:"participant"`
+	Name        string `json:"name"`
+	Score       int    `json:"score"`
+	Solved      int    `json:"solved"`
+	// Coding is the number of coding phases done (Find it, Fix it).
+	Coding      int        `json:"coding"`
 	LastSolve   *time.Time `json:"last_solve"`
 	Online      bool       `json:"online"`
 	FirstBloods int        `json:"first_bloods"`
@@ -271,16 +341,20 @@ type BoardRow struct {
 	Categories []int `json:"categories"`
 }
 
-// TickerItem is one solve in the live ticker.
+// TickerItem is one solve, or one coding phase, in the live ticker.
 type TickerItem struct {
 	At            time.Time `json:"at"`
 	Participant   int64     `json:"participant"`
 	Name          string    `json:"name"`
 	Challenge     string    `json:"challenge"`
 	ChallengeName string    `json:"challenge_name"`
-	Difficulty    int       `json:"difficulty"`
-	Points        int       `json:"points"`
-	FirstBlood    bool      `json:"first_blood"`
+	// Phase is "" for a solve, else find_it or fix_it, and PhaseName how
+	// the board writes it.
+	Phase      string `json:"phase,omitempty"`
+	PhaseName  string `json:"phase_name,omitempty"`
+	Difficulty int    `json:"difficulty"`
+	Points     int    `json:"points"`
+	FirstBlood bool   `json:"first_blood"`
 }
 
 // SeriesPoint is one step of a score-over-time line.
@@ -336,7 +410,7 @@ func (s *Store) Board(g *Game, now time.Time) (*Board, error) {
 		Series:      []Series{},
 	}
 	for _, r := range rs {
-		row := BoardRow{Rank: r.rank, Participant: r.p.ID, Name: d.shown(r.p), Score: r.score, Solved: r.solved,
+		row := BoardRow{Rank: r.rank, Participant: r.p.ID, Name: d.shown(r.p), Score: r.score, Solved: r.solved, Coding: r.coding,
 			LastSolve: r.last, Online: r.p.Online(now), FirstBloods: r.bloods, Categories: make([]int, len(d.cats))}
 		for i, c := range d.cats {
 			row.Categories[i] = r.byCat[c.Name]
@@ -355,8 +429,12 @@ func (s *Store) Board(g *Game, now time.Time) (*Board, error) {
 		if !sv.scores || !onBoard(p) {
 			continue
 		}
-		b.Ticker = append(b.Ticker, TickerItem{At: sv.receivedAt, Participant: p.ID, Name: d.shown(p), Challenge: sv.key,
-			ChallengeName: sv.name, Difficulty: sv.difficulty, Points: sv.points, FirstBlood: first[sv.key] == p.ID})
+		it := TickerItem{At: sv.receivedAt, Participant: p.ID, Name: d.shown(p), Challenge: sv.key,
+			ChallengeName: sv.name, Difficulty: sv.difficulty, Points: sv.points, FirstBlood: sv.phase == "" && first[sv.key] == p.ID}
+		if sv.phase != "" {
+			it.Phase, it.PhaseName = sv.phase, protocol.PhaseName(sv.phase)
+		}
+		b.Ticker = append(b.Ticker, it)
 	}
 
 	// Score over time: the axis runs from the start (or the first join) to
@@ -407,14 +485,18 @@ type CategoryProgress struct {
 	Solved int
 }
 
-// SolveLine is one solve on a participant's or a challenge's page.
+// SolveLine is one solve, or one coding phase, on a participant's or a
+// challenge's page.
 type SolveLine struct {
 	Order       int
 	Participant int64
 	Name        string
 	Challenge   Challenge
-	At          time.Time
-	FirstBlood  bool
+	// PhaseName is "" for a solve, else "Find it" or "Fix it".
+	PhaseName  string
+	Points     int
+	At         time.Time
+	FirstBlood bool
 }
 
 func (d *gameData) challenge(key string) (Challenge, bool) {
@@ -459,7 +541,13 @@ func (s *Store) ParticipantPage(g *Game, pid int64, now time.Time) (*Participant
 		if !ok {
 			continue
 		}
-		l := SolveLine{Order: len(pp.Solves) + 1, Participant: pid, Name: pp.Row.Name, Challenge: c, At: sv.receivedAt, FirstBlood: first[sv.key] == pid}
+		l := SolveLine{Order: len(pp.Solves) + 1, Participant: pid, Name: pp.Row.Name, Challenge: c, Points: sv.points, At: sv.receivedAt}
+		if sv.phase != "" {
+			l.PhaseName = protocol.PhaseName(sv.phase)
+			pp.Solves = append(pp.Solves, l)
+			continue
+		}
+		l.FirstBlood = first[sv.key] == pid
 		pp.Solves = append(pp.Solves, l)
 		if l.FirstBlood {
 			pp.Bloods = append(pp.Bloods, l)
@@ -471,10 +559,12 @@ func (s *Store) ParticipantPage(g *Game, pid int64, now time.Time) (*Participant
 	return pp, nil
 }
 
-// ChallengePage is who solved one challenge, in order.
+// ChallengePage is who solved one challenge, in order, and who did the
+// phases of its coding challenge.
 type ChallengePage struct {
 	Challenge Challenge
 	Solvers   []SolveLine
+	Coders    []SolveLine
 }
 
 // ChallengePage returns a challenge of the catalogue with its solvers on the
@@ -494,8 +584,13 @@ func (s *Store) ChallengePage(g *Game, key string) (*ChallengePage, error) {
 		if sv.key != key || !sv.scores || !onBoard(p) {
 			continue
 		}
+		if sv.phase != "" {
+			cp.Coders = append(cp.Coders, SolveLine{Order: len(cp.Coders) + 1, Participant: p.ID, Name: d.shown(p), Challenge: c,
+				PhaseName: protocol.PhaseName(sv.phase), Points: sv.points, At: sv.receivedAt})
+			continue
+		}
 		cp.Solvers = append(cp.Solvers, SolveLine{Order: len(cp.Solvers) + 1, Participant: p.ID, Name: d.shown(p), Challenge: c,
-			At: sv.receivedAt, FirstBlood: len(cp.Solvers) == 0})
+			Points: sv.points, At: sv.receivedAt, FirstBlood: len(cp.Solvers) == 0})
 	}
 	return cp, nil
 }
@@ -563,7 +658,7 @@ func (s *Store) CategoryPage(g *Game, slug string, now time.Time) (*CategoryPage
 	for _, sv := range d.solves {
 		i, inCat := col[sv.key]
 		ri, on := rowOf[sv.pid]
-		if !inCat || !on || !sv.scores {
+		if !inCat || !on || !sv.scores || sv.phase != "" {
 			continue
 		}
 		cp.Rows[ri].Solved[i] = true
@@ -590,7 +685,11 @@ func (s *Store) GameParticipants(g *Game, now time.Time) ([]*Participant, error)
 		p := d.byID[sv.pid]
 		if sv.scores {
 			p.Score += sv.points
-			p.Solved++
+			if sv.phase == "" {
+				p.Solved++
+			} else {
+				p.Coding++
+			}
 		}
 		if sv.cheat != nil {
 			sum[p.ID] += *sv.cheat
