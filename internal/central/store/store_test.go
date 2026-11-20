@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package store
 
 import (
@@ -9,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
 var t0 = time.Date(2026, 11, 19, 9, 0, 0, 0, time.UTC)
@@ -92,11 +95,11 @@ func scores(t *testing.T, st *Store, g *Game, now time.Time) map[string]int {
 	return out
 }
 
-// ---- T1.1-11: migrating a 1.0 database --------------------------------
+// ---- migrating a 1.0 database --------------------------------------
 
 // lab10 builds a database as 1.0 left it after the lab: one instance shared
-// by every VM, five students, the first four ended by the fifth's sign-up
-// (VERSION-1-1.md §1.1), each with solves.
+// by every VM, five students, the first four ended by the fifth's sign-up,
+// each with solves.
 func lab10(t *testing.T, path string) {
 	t.Helper()
 	db, err := sql.Open("sqlite", "file:"+path)
@@ -199,7 +202,7 @@ func TestFreshDatabaseHasNoLegacyGame(t *testing.T) {
 	}
 }
 
-// ---- T1.1-12: events and retention -------------------------------------
+// ---- events and retention -------------------------------------------
 
 func TestPruneDeletesOldEvents(t *testing.T) {
 	st := newStore(t)
@@ -223,7 +226,7 @@ func TestPruneDeletesOldEvents(t *testing.T) {
 	}
 }
 
-// ---- T1.1-13: games ------------------------------------------------------
+// ---- games ------------------------------------------------------------
 
 func TestGameTransitions(t *testing.T) {
 	st := newStore(t)
@@ -266,7 +269,7 @@ func TestSlugsAreUnique(t *testing.T) {
 
 func ptr(t time.Time) *time.Time { return &t }
 
-// ---- T1.1-14: join -------------------------------------------------------
+// ---- join -------------------------------------------------------------
 
 func TestJoin(t *testing.T) {
 	st := newStore(t)
@@ -298,9 +301,9 @@ func TestJoin(t *testing.T) {
 	}
 }
 
-// ---- T1.1-16: reports ----------------------------------------------------
+// ---- reports ----------------------------------------------------------
 
-// TestFiveStudentsStayOnTheBoard is the lab's F1 as a test: in 1.0 each new
+// TestFiveStudentsStayOnTheBoard: in 1.0 each new
 // sign-up ended everyone before it.
 func TestFiveStudentsStayOnTheBoard(t *testing.T) {
 	st := newStore(t)
@@ -389,7 +392,7 @@ func TestUnknownKeysAreIgnored(t *testing.T) {
 	}
 }
 
-// ---- T1.1-17, -18: commands and leave ------------------------------------
+// ---- commands and leave ------------------------------------------------
 
 func TestForgetReachesOnlyThatParticipant(t *testing.T) {
 	st := newStore(t)
@@ -493,7 +496,7 @@ func TestClearGameTellsEveryVMAndLeavesOthersAlone(t *testing.T) {
 	}
 }
 
-// ---- T1.1-20: standings --------------------------------------------------
+// ---- standings --------------------------------------------------------
 
 func TestTwoGamesRankSeparately(t *testing.T) {
 	st := newStore(t)
@@ -544,7 +547,7 @@ func TestFirstBloodGoesByReceipt(t *testing.T) {
 	}
 }
 
-// ---- T1.1-21: the events of a scripted run --------------------------------
+// ---- the events of a scripted run --------------------------------------
 
 func TestScriptedRunEvents(t *testing.T) {
 	st := newStore(t)
@@ -579,7 +582,7 @@ func TestScriptedRunEvents(t *testing.T) {
 	}
 }
 
-// ---- T1.1-22: flags ------------------------------------------------------
+// ---- flags ------------------------------------------------------------
 
 func flagKinds(t *testing.T, st *Store, g *Game) map[string]bool {
 	t.Helper()

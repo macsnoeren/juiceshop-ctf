@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package node
 
 import (
@@ -10,8 +13,7 @@ import (
 	"github.com/macsnoeren/juiceshop-ctf/internal/juiceshop"
 )
 
-// The watcher is 1.0's agent logic (DESIGN.md §6), unchanged in what it
-// decides, now on node.db and the membership of 1.1:
+// The watcher decides what counts as a solve:
 //
 //   - Juice Shop's /api/Challenges is the only source of truth about solves;
 //     the webhook only says "poll now" (and carries the cheat score);

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package node
 
 import (
@@ -12,11 +15,11 @@ import (
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/juiceshop"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 	_ "modernc.org/sqlite"
 )
 
-// Store is node.db (VERSION-1-1.md §4.1): one SQLite file in /var/lib/ctf,
+// Store is node.db: one SQLite file in /var/lib/ctf,
 // the directory 0700 and the file 0600, both owned by 10001, so Juice Shop
 // (65532) can read neither the token nor the continue codes.
 //
@@ -350,7 +353,7 @@ func (s *Store) Save(st *State) error {
 	return tx.Commit()
 }
 
-// Wipe empties every student table (Forget, VERSION-1-1.md §4.4) and
+// Wipe empties every student table (Forget) and
 // truncates the WAL, so nothing of the student is left in the file.
 func (s *Store) Wipe() error {
 	tx, err := s.db.Begin()
@@ -409,7 +412,7 @@ func (s *Store) SetSetting(key, value string) error {
 	return err
 }
 
-// The optional gate's sessions (CTF_GATE=session, VERSION-1-1.md §4.2):
+// The optional gate's sessions (CTF_GATE=session):
 // server-side, so deleting a cookie loses nothing the node cannot give back
 // for the name and the return code.
 
@@ -448,8 +451,7 @@ func (s *Store) GateFailures(now time.Time, window time.Duration, add bool) (int
 	return n, err
 }
 
-// ImportV1 reads a 1.0 agent's state.json, if there is one (VERSION-1-1.md
-// §8): its solves and continue codes come along, its registration does NOT —
+// ImportV1 reads a 1.0 agent's state.json, if there is one: its solves and continue codes come along, its registration does NOT —
 // it belonged to the shared instance identity that 1.1 removes. The file is
 // renamed state.json.imported by the caller once the result is saved, so it
 // is imported once. It returns the number of solves imported, or -1 when

@@ -3,20 +3,17 @@
 For a developer who is new to this repository. After reading it you should
 know how the pieces fit together, where to find the code for any part of the
 behaviour, how to make a change and check it, and which rules you can break
-without noticing. It does not repeat the design: it points to where the design
-is written down.
+without noticing.
 
 | If you want… | read |
 |--------------|------|
 | what the CTF is, from the outside | [README.md](../README.md) |
 | how an operator runs a lab with it (the behaviour you must keep) | [docs/OPERATIONS.md](OPERATIONS.md) |
-| why 1.1 is built the way it is | [docs/VERSION-1-1.md](VERSION-1-1.md), sections cited as `§n` in the code |
 | the wire format between VM and central server | [docs/PROTOCOL.md](PROTOCOL.md) |
-| the 1.0 reasoning, still valid where 1.1 does not say otherwise | [docs/DESIGN.md](DESIGN.md) |
-| how 1.1 was built, task by task (`T1.1-nn` in comments) | [docs/TASK-1-1.md](TASK-1-1.md) |
+| what a student sees and does | [docs/STUDENT.md](STUDENT.md) |
+| why a piece of code is the way it is | the comment at the top of its file |
 
-Read the README and OPERATIONS.md first (twenty minutes); open the other
-documents when a comment sends you there.
+Read the README and OPERATIONS.md first (twenty minutes).
 
 ## 1. The system in one picture
 
@@ -116,12 +113,12 @@ program's environment is a secret.
 cmd/ctf-node/main.go         the three parts of the node binary, its environment
 cmd/ctf-central/main.go      the central server's entry point, its environment, the daily prune
 
-internal/shared/protocol     protocol v2: the request and answer types, validation, join codes and tokens
-internal/shared/names        the one rule for display names (both sides use it)
-internal/shared/httpx        logger, server with timeouts, the security headers and CSP
-internal/shared/config       reading the environment, collecting every error at once
-internal/shared/health       the -healthcheck flag of both binaries
-internal/shared/version      the version string, set by -ldflags from `git describe`
+internal/protocol            protocol v2: the request and answer types, validation, join codes and tokens
+internal/names               the one rule for display names (both sides use it)
+internal/httpx               logger, server with timeouts, the security headers and CSP
+internal/config              reading the environment, collecting every error at once
+internal/health              the -healthcheck flag of both binaries
+internal/version             the version string, set by -ldflags from `git describe`
 
 internal/juiceshop           the Juice Shop client, and the embedded catalogue of the pinned version
 internal/juiceshop/testdata  real answers captured from Juice Shop 20.3.0 (README.md says how)
@@ -160,23 +157,20 @@ web/static/                    style.css (the one stylesheet, Juice Shop's theme
 
 deploy/docker/                 Dockerfile.node (FROM Juice Shop), Dockerfile.central (FROM scratch)
 deploy/compose/                the local test setup: start.sh, stop.sh, docker-compose.yml
-deploy/vm/             the students' VM: Packer + QEMU in Docker → VirtualBox OVA and VMware .vmx
-                               (build.sh, juiceshop-ctf.pkr.hcl, provision.sh, package.sh, test.sh);
-                               and the students' sheet
+deploy/vm/                     the students' VM: Packer + QEMU in Docker → VirtualBox OVA and VMware .vmx
+                               (build.sh, juiceshop-ctf.pkr.hcl, provision.sh, package.sh, test.sh)
 
-tests/e2e.sh                   the whole CTF in Docker, end to end
-tests/image.sh                 the image on its own: users, isolation, respawn
-scripts/test.sh                what `make test` runs
+scripts/test.sh                what `make test` runs: gofmt, vet, unit tests
+scripts/e2e.sh                 the whole CTF in Docker, end to end
+scripts/image.sh               the image on its own: users, isolation, respawn
+scripts/release-notes.sh       the release check, and the notes from CHANGELOG.md
+
+docs/                          OPERATIONS.md, STUDENT.md, PROTOCOL.md, DEVELOPER.md (this file)
 ```
 
-**Finding the code for a behaviour.** Comments cite the design: `§4.3` is a
-section of VERSION-1-1.md, `T1.1-37a` a task in TASK-1-1.md, `D3` a decision
-in VERSION-1-1.md, and `F1` a finding from the first lab. Searching for the
-reference finds the code that implements it:
-
-```sh
-grep -rn 'T1.1-37a\|§4.3' --include=*.go .
-```
+**Finding the code for a behaviour.** The table above names the file; its
+header comment says what it does and why. The test sections (`// ---- join
+----`) are named after the behaviour they hold in place.
 
 ## 4. Rules that are not obvious
 
@@ -184,7 +178,7 @@ These are what a reasonable change can break without any compiler or reviewer
 noticing. Each one has a reason in the code next to it.
 
 **The protocol**
-- `internal/shared/protocol` is the **only** definition of the wire format.
+- `internal/protocol` is the **only** definition of the wire format.
   Both programs compile against it, so they cannot disagree about a field.
   A change there is a change to [docs/PROTOCOL.md](PROTOCOL.md) too.
 - **VMs in the field are never updated.** A new version is a new image that
@@ -218,9 +212,9 @@ noticing. Each one has a reason in the code next to it.
   time zone and the retention, all changed in admin. The environment says only
   where the database is and where to listen. Do not add operator settings as
   environment variables.
-- **Flags are shown, never acted on** (decision D5). A new flag must stay
+- **Flags are shown, never acted on.** A new flag must stay
   silent for honest play: the end-to-end test checks that a full honest run
-  raises none (T1.1-55).
+  raises none.
 
 **The node**
 - **ctf-node -serve has no privilege at all**, and refuses to start if it has
@@ -231,13 +225,13 @@ noticing. Each one has a reason in the code next to it.
 - Juice Shop runs as a different user (65532) and **must not be able to read
   `node.db`** (0600, in a 0700 directory, uid 10001). The students attack Juice
   Shop, and some of its challenges give them code execution as its user.
-  `tests/image.sh` checks this from inside the container.
+  `scripts/image.sh` checks this from inside the container.
 - **The join code is stored only in the outbox**, and only until the join is
   answered. The token is stored only in `node.db`. Neither is ever logged,
   shown on a page or put into an error message.
 - **Forget wipes every table in `studentTables`** (`store.go`). A new table
   that holds anything about the student goes into that list, and into the
-  table list in `tests/image.sh`, which checks that Forget really leaves
+  table list in `scripts/image.sh`, which checks that Forget really leaves
   nothing behind.
 - The proxy **refuses Juice Shop's continue-code apply**. Without that, a
   student could copy a classmate's progress. A change to the proxy's paths is
@@ -279,18 +273,18 @@ noticing. Each one has a reason in the code next to it.
 - Every POST on the student's page goes through its CSRF wrapper (`s.form`).
 - Every page is **complete without JavaScript**: `board.js` and `admin.js`
   only add live refresh and animation, and honour `prefers-reduced-motion`.
-- **Nothing depends on a cookie surviving** (T1.1-54). Students wipe cookies
+- **Nothing depends on a cookie surviving.** Students wipe cookies
   while attacking Juice Shop, so the student's page keeps its state in
   `node.db`, never in the browser. The only cookie it sets is the CSRF one,
   which is simply made again.
 
 **Docker and the test setup**
 - The test setup's compose project is called `juiceshop-ctf-lab`, and
-  `tests/e2e.sh` uses `juiceshop-ctf-e2e` and other ports. **Do not rename
+  `scripts/e2e.sh` uses `juiceshop-ctf-e2e` and other ports. **Do not rename
   them** to something another setup on your machine uses: `stop.sh --wipe`
   removes the containers it considers orphans, and deletes volumes.
 - The node image must stay within **20 MB of Juice Shop's own**
-  (`tests/image.sh` checks it). That is why ctf-node does not embed tzdata,
+  (`scripts/image.sh` checks it). That is why ctf-node does not embed tzdata,
   while ctf-central (`FROM scratch`) does.
 
 ## 5. Making common changes
@@ -344,7 +338,7 @@ every step.
    encode its solves. `h.submit("/ctf/join", form)` posts a form the way the
    browser does, CSRF included.
 3. If students will see the change, update
-   [deploy/vm/STUDENT.md](../deploy/vm/STUDENT.md).
+   [docs/STUDENT.md](STUDENT.md).
 
 **A new flag**
 1. Add a constant and the check in `store/report.go` (`solveFlags`, or in the
@@ -370,7 +364,7 @@ every step.
 2. Change the `FROM` tag in `deploy/docker/Dockerfile.node` and
    `CatalogueVersion`.
 3. Run `make test`; a failing client test shows what Juice Shop changed.
-4. Run `bash tests/image.sh` (users, size, respawn) and `make e2e`.
+4. Run `bash scripts/image.sh` (users, size, respawn) and `make e2e`.
 5. Look at the new Juice Shop next to the board: if its theme changed, the
    colours at the top of `web/static/style.css` and in `chart.svg` follow.
 5. Keep the old catalogue's keys in mind: a game that is running still holds
@@ -383,8 +377,8 @@ Three levels, from fast to thorough:
 | | Needs | Time | Run it |
 |-|-------|------|--------|
 | `make test` (`scripts/test.sh`) | Go | ~1 min | before every commit |
-| `bash tests/image.sh` | Docker | ~2 min | after touching the keeper, the Dockerfile, users, files, or Forget |
-| `make e2e` (`tests/e2e.sh`) | Docker, python3 | ~5 min | before a merge or a release; after any change to protocol, flags, Forget, remove or clear |
+| `bash scripts/image.sh` | Docker | ~2 min | after touching the keeper, the Dockerfile, users, files, or Forget |
+| `make e2e` (`scripts/e2e.sh`) | Docker, python3 | ~5 min | before a merge or a release; after any change to protocol, flags, Forget, remove or clear |
 | `make vm` (`deploy/vm/build.sh`) | Docker, `/dev/kvm` | ~6 min | after touching `deploy/vm/` or the node image; it boots the exported disks and checks them |
 
 - **The unit tests use real components wherever they can**: SQLite on a temp
@@ -393,12 +387,12 @@ Three levels, from fast to thorough:
   The clock is injected everywhere (`SetClock`), so nothing sleeps for long.
 - **The golden files** in `internal/central/testdata` pin the board's JSON
   and the chart. Never update them with `-update` without reading the diff.
-- **`tests/e2e.sh`** runs the compose setup under its own project name and
+- **`scripts/e2e.sh`** runs the compose setup under its own project name and
   ports, so it never touches a `make run` you have open. Each student's
   requests go from that student's "Kali" container to their own VM, as in
   the lab. On failure it names the step and prints the logs.
-  `E2E_KEEP=1 bash tests/e2e.sh` leaves the setup running for a look.
-- **`tests/image.sh`** checks, from inside the real container, what no unit
+  `E2E_KEEP=1 bash scripts/e2e.sh` leaves the setup running for a look.
+- **`scripts/image.sh`** checks, from inside the real container, what no unit
   test can:
   - the uid and capabilities of each process;
   - that code running as Juice Shop's user cannot read `node.db` or signal
@@ -442,10 +436,14 @@ Three levels, from fast to thorough:
   prefixes. The body explains the reasoning.
 - **Everything is in English**: code, comments, docs and commit messages.
 - **Comments explain why**, in full sentences, and say what breaks if the line
-  is changed. Emphasis is in CAPITALS; a warning starts with `>>>`. Cite the
-  document that holds the full explanation (`§4.3`, `T1.1-31`) instead of
-  repeating it. Every file starts with a comment that says what it is and
+  is changed. Keep them short. Emphasis is in CAPITALS; a warning starts
+  with `>>>`. Do NOT cite documents, sections, tasks or issues: a comment
+  must stand on its own. Every file starts with a comment that says what it is and
   what is unusual about it. Keep that comment true when you change the file.
+- **Every source file starts with its licence**: two lines,
+  `SPDX-License-Identifier: GPL-3.0-or-later` and the copyright, in the
+  file's own comment syntax, before the header comment. Files captured from
+  Juice Shop (the catalogue, `testdata/`) are Juice Shop's (MIT) and get none.
 - `gofmt` is enforced by `make test`. There are only two direct
   dependencies (`modernc.org/sqlite`, `golang.org/x/text`); adding a third
   needs a good reason, written in the commit.

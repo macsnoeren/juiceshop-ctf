@@ -1,5 +1,8 @@
-// Package juiceshop is the agent's client for the few Juice Shop endpoints it
-// needs (DESIGN.md §6.1, §6.2). None of them requires a login: they are what
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
+// Package juiceshop is ctf-node's client for the few Juice Shop endpoints it
+// needs. None of them requires a login: they are what
 // Juice Shop's own score board and its "restore progress" button use.
 //
 // The shapes here were captured from the pinned version; see testdata/README.md

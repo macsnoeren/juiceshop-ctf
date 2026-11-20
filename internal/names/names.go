@@ -1,5 +1,7 @@
-// Package names holds the one rule for a participant's display name
-// (DESIGN.md §5.4).
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
+// Package names holds the one rule for a participant's display name.
 //
 // The name is shown on a public leaderboard and a beamer, so it is restricted
 // to what a person's name needs: letters (any script), digits, spaces and

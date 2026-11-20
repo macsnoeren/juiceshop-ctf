@@ -1,9 +1,9 @@
 # Protocol v2: ctf-node ↔ ctf-central
 
 The three requests between a student's VM and the central server, as built
-in 1.1. The Go types are in [`internal/shared/protocol`](../internal/shared/protocol),
+in 1.1. The Go types are in [`internal/protocol`](../internal/protocol),
 the one place the format is defined; the examples below are the ones its
-tests round-trip. Why it looks like this: [VERSION-1-1.md](VERSION-1-1.md) §2.
+tests round-trip.
 
 All three go **from the VM** to the central server and are answered at once,
 so a VM needs nothing but outbound HTTPS. Bodies are JSON, at most 256 KiB.

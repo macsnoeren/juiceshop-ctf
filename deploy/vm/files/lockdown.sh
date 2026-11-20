@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
 # lockdown.sh: the last thing that runs in the VM while it is built. Packer
 # runs it as its shutdown_command (juiceshop-ctf.pkr.hcl), over the SSH
 # session it is about to take away, and waits for the VM to power off.

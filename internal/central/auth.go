@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package central
 
 import (
@@ -11,12 +14,12 @@ import (
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/httpx"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
 // The login in front of /admin/. Until this, admin had no login of its own
-// and nginx was the only lock (decision D4); now the application has
+// and nginx was the only lock; now the application has
 // accounts, and nginx's allow-list stays in front as a second lock where it
 // is configured.
 //

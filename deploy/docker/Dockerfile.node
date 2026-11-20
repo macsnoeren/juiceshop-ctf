@@ -1,4 +1,7 @@
-# juiceshop-ctf: Juice Shop and ctf-node in ONE image (docs/VERSION-1-1.md §3.1)
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
+# juiceshop-ctf: Juice Shop and ctf-node in ONE image
 #
 # Build context is the REPOSITORY ROOT:
 #
@@ -23,8 +26,8 @@
 #   - CMD is reset: the base image's CMD is Juice Shop's script, which would
 #     otherwise be passed to ctf-node as an argument.
 #   - The root filesystem cannot be read-only: Juice Shop rewrites its own
-#     database, translations and frontend under /juice-shop on every start
-#     (VERSION-1-1.md §3.1, T1.1-03). Only /juice-shop/logs is worth a tmpfs.
+#     database, translations and frontend under /juice-shop on every start.
+#     Only /juice-shop/logs is worth a tmpfs.
 #   - CTF_CENTRAL_URL, the central server a join goes to, is the build arg
 #     CENTRAL_URL: not a secret, and the student page can change it before
 #     joining. Empty (the default) means the image knows no central server:
@@ -34,7 +37,7 @@
 #     between students.
 #
 # >>> Upgrading Juice Shop is a new FROM tag, the fixtures and the catalogue
-# captured again (internal/juiceshop/testdata/README.md), and tests/e2e.sh.
+# captured again (internal/juiceshop/testdata/README.md), and scripts/e2e.sh.
 
 FROM golang:1.26.10-alpine3.24 AS build
 WORKDIR /src
@@ -45,11 +48,16 @@ COPY internal ./internal
 COPY web ./web
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath \
-      -ldflags "-s -w -X github.com/macsnoeren/juiceshop-ctf/internal/shared/version.Version=${VERSION}" \
+      -ldflags "-s -w -X github.com/macsnoeren/juiceshop-ctf/internal/version.Version=${VERSION}" \
       -o /out/ctf-node ./cmd/ctf-node \
  && mkdir -p /out/var/lib/ctf
 
 FROM bkimminich/juice-shop:v20.3.0
+# ctf-node is GPL-3.0-or-later; Juice Shop, the base image, keeps its MIT
+# licence. The licence text travels with the binary, as the GPL asks.
+LABEL org.opencontainers.image.licenses="GPL-3.0-or-later AND MIT" \
+      org.opencontainers.image.source="https://github.com/macsnoeren/juiceshop-ctf"
+COPY LICENSE /usr/share/licenses/juiceshop-ctf/LICENSE
 COPY --from=build /out/ctf-node /ctf-node
 # The node's directory: 10001 and 0700. A named volume mounted here is
 # initialised from it, ownership and mode included.

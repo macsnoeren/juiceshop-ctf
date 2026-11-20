@@ -7,7 +7,7 @@ an IP allow-list in front of admin as well), and the CTF VM
 (`juiceshop-ctf-<version>-virtualbox.ova`, or `-vmware.zip` for VMware), from
 a release or built with `CENTRAL_URL=<your server> make vm`. How it is made is in
 [deploy/vm/README.md](../deploy/vm/README.md); the students'
-sheet is [deploy/vm/STUDENT.md](../deploy/vm/STUDENT.md).
+sheet is [docs/STUDENT.md](STUDENT.md).
 
 ```
  each student's laptop (VirtualBox/VMware)                              a server
@@ -81,8 +81,8 @@ managing the others.
 ### Flags
 
 Raised in the feed and shown next to the participant; **never acted on
-automatically** (decision D5). The student owns the VM, so a determined one
-can fake a report (VERSION-1-1.md §2.1); flags show what an honest VM never
+automatically**. The student owns the VM, so a determined one
+can fake a report; flags show what an honest VM never
 sends.
 
 | Flag | Means |

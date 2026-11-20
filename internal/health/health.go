@@ -1,14 +1,15 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 // Package health implements the -healthcheck flag of every binary.
 //
 // The images are FROM scratch: there is no shell, no curl and no wget to run a
-// HEALTHCHECK with. So each binary checks itself: `ctf-agent -healthcheck`
+// HEALTHCHECK with. So each binary checks itself: `ctf-central -healthcheck`
 // GETs its own /healthz and exits 0 or 1, and the Dockerfile's HEALTHCHECK
 // runs exactly that.
 //
-// It connects to the HOST of the listen address when there is one. ctf-agent
-// binds its API to a network alias (ctf-agent-api:8082) so that it listens on
-// the ctf-internal network only (DESIGN.md §4); 127.0.0.1 would find nothing
-// there.
+// It connects to the HOST of the listen address when there is one: a server
+// bound to a network alias is not on 127.0.0.1.
 package health
 
 import (

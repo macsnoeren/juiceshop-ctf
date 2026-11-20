@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
 # test.sh: boots the EXPORTED disks — the one in the VirtualBox OVA and the
 # one in the VMware zip — the way those hypervisors present them, and checks
 # the CTF answers. Runs in the builder container, from deploy/vm/build.sh.

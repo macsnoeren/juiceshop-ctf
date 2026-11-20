@@ -1,4 +1,7 @@
-// Package config reads the environment variables of DESIGN.md §9.
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
+// Package config reads the environment variables of the binaries.
 //
 // Every binary is configured from the environment only, because that is what
 // docker compose (`environment:` and `env_file:`), `docker run -e` and an

@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
 # install.sh: runs on the Alpine live ISO, typed in by Packer's boot_command
 # (juiceshop-ctf.pkr.hcl), and installs Alpine to the VM's disk without a
 # question. $1 is Packer's HTTP server, where this build's SSH key is.

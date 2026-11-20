@@ -1,14 +1,15 @@
-// Package node is ctf-node: the CTF half of the juiceshop-ctf container
-// (docs/VERSION-1-1.md §3.1, §4). One program where 1.0 had two (ctf-agent
-// and ctf-status):
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
+// Package node is ctf-node: the CTF half of the juiceshop-ctf container,
+// in one program:
 //
 //   - the student's page at /ctf/: join, progress, rank, the two buttons
 //     (page.go);
 //   - the reverse proxy to Juice Shop at /juiceshop/ and /assets/, which
 //     refuses Juice Shop's continue-code apply (proxy.go);
 //   - the watcher: it polls Juice Shop, restores a restarted one from the
-//     continue codes and records first-seen solve times (watcher.go, 1.0's
-//     agent logic);
+//     continue codes and records first-seen solve times (watcher.go);
 //   - the reporter: join, report and leave against the central server, with
 //     an outbox when it is unreachable (central.go);
 //   - node.db: everything above remembers in SQLite (store.go).
@@ -21,13 +22,13 @@ import (
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/juiceshop"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
 // The statuses of a membership.
 const (
 	// StatusLocal: no central server is configured; the student gave a name
-	// and plays on their own (VERSION-1-1.md §4.3).
+	// and plays on their own.
 	StatusLocal = "local"
 	// StatusPending: the join waits in the outbox for the central server.
 	StatusPending = "pending"
@@ -45,7 +46,7 @@ const (
 type Membership struct {
 	Status   string
 	Name     string
-	NodeUID  string // made at the first join, never at boot (§4.1)
+	NodeUID  string // made at the first join, never at boot
 	JoinedAt time.Time
 	// CentralURL is the server this membership belongs to: a token is only
 	// good there, so changing the server needs Forget first.
@@ -59,7 +60,7 @@ type Membership struct {
 	ReturnCodeHash string
 }
 
-// Outbox is a join waiting for the central server (§4.3). It is the ONLY
+// Outbox is a join waiting for the central server. It is the ONLY
 // place the join code is ever stored, and only until the join is answered.
 type Outbox struct {
 	Name      string
@@ -76,7 +77,7 @@ type Standing struct {
 	At              time.Time
 }
 
-// State is everything the node remembers about the student (§4.1).
+// State is everything the node remembers about the student.
 type State struct {
 	Membership *Membership
 	Outbox     *Outbox
@@ -129,7 +130,7 @@ func (s *State) clone() *State {
 
 // recording reports whether new solves belong to someone: there is a student,
 // and their game has not ended. A node keeps quiet about solves after the end
-// — an honest one never sends them (VERSION-1-1.md §5.5).
+// — an honest one never sends them.
 func (s *State) recording() bool {
 	m := s.Membership
 	return m != nil && m.Game.State != protocol.StateClosed && m.Game.State != protocol.StateLeft

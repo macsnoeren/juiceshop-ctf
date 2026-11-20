@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 // Package httpx holds the small HTTP and logging helpers the three binaries
 // share: one logger format, constant-time bearer checks, JSON responses, the
 // security headers on every page, and graceful server shutdown.

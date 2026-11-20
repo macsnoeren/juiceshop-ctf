@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package central
 
 import (
@@ -10,11 +13,11 @@ import (
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/httpx"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
-// The operator pages (VERSION-1-1.md §5.2–§5.4). Every one of them needs a
+// The operator pages. Every one of them needs a
 // logged-in admin account (auth.go; the setup page makes the first), and
 // every form carries a CSRF token as well, so a page in the operator's
 // browser cannot make them clear a game. Every action is written to the

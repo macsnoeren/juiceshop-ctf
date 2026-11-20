@@ -1,10 +1,13 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
 # provision.sh: runs over SSH as root in the freshly installed Alpine
 # (juiceshop-ctf.pkr.hcl), and turns it into the CTF VM: Docker, the
 # juiceshop-ctf image, the service that runs it, and the network and drivers
 # of VirtualBox's and VMware's hardware. lockdown.sh finishes it at shutdown.
 #
-# What the VM is in the end (docs/VERSION-1-1.md §3; deploy/vm/README.md):
+# What the VM is in the end:
 #
 #   adapter 1 (eth0)  NAT        DHCP   the way out, to the central server
 #   adapter 2 (eth1)  host-only  DHCP   the lab: Kali reaches :80 here
@@ -74,7 +77,7 @@ rc-service docker stop
 
 # ---- the console ----------------------------------------------------------------------
 # No address on the console on purpose: finding the VM from Kali is the
-# students' first task (deploy/vm/STUDENT.md).
+# students' first task (docs/STUDENT.md).
 cat >/etc/issue <<EOF
 Juice Shop CTF ${VERSION}
 

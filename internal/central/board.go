@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package central
 
 import (
@@ -10,11 +13,11 @@ import (
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/httpx"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
-// The public pages of a game (VERSION-1-1.md §6). All server-rendered; one
+// The public pages of a game. All server-rendered; one
 // small script (static/board.js) refreshes the board every ten seconds from
 // board.json. A draft game and a game with a hidden board are 404 on every
 // one of them, the JSON included.

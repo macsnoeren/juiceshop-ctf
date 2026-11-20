@@ -1,7 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
 # Juice Shop CTF — the four things one does with this repository.
 #
 #   make test     vet, gofmt and the unit tests with the race detector (no Docker)
-#   make e2e      the whole CTF in Docker, end to end (tests/e2e.sh, a few minutes)
+#   make e2e      the whole CTF in Docker, end to end (scripts/e2e.sh, a few minutes)
 #   make images   build the images, versioned from git
 #   make run      start the test setup (deploy/compose/start.sh); stop with make stop
 #   make vm       the students' VM for VirtualBox and VMware, in Docker (deploy/vm/build.sh)
@@ -22,7 +25,7 @@ test:
 	bash scripts/test.sh
 
 e2e:
-	bash tests/e2e.sh
+	bash scripts/e2e.sh
 
 images:
 	docker build -f deploy/docker/Dockerfile.node    --build-arg VERSION=$(VERSION) -t juiceshop-ctf:$(VERSION) -t juiceshop-ctf:latest .

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# e2e.sh: the CTF 1.1 end to end, in Docker (TASK-1-1 T1.1-53..55).
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
+# e2e.sh: the whole CTF end to end, in Docker.
 #
 # Brings up deploy/compose/docker-compose.yml under its own project name and
 # ports (so it never touches a setup you have running): the central server
@@ -9,7 +12,7 @@
 #   setup      a fresh admin leads to the setup page; the first account logs in
 #   games      two games made in admin; VM 1 and 2 join A, VM 3 joins B
 #   solves     solves on each VM reach their own game's board, and only that
-#   board      every student stays on the board throughout — the lab's F1
+#   board      every student stays on the board throughout
 #   cookies    without any cookie the page and the shop are the same
 #   restart    "Restart Juice Shop": the solves are back in the shop
 #   codes      VM 1's continue code is refused on VM 2, whose score stays
@@ -18,14 +21,14 @@
 #              the join and the solve arrive
 #   remove     admin removes VM 3's student: the VM forgets by itself
 #   clear      admin clears game B: VM 2 forgets by itself; A is untouched
-#   flags      the honest play above raised NO flag (T1.1-55) ...
+#   flags      the honest play above raised NO flag ...
 #   copy       ... and a copy of VM 1, made after it joined, is flagged
 #
 # Exits non-zero at the first failed check, names it, and shows the logs.
 # Needs docker (with compose) and python3. About five minutes.
 #
-#   bash tests/e2e.sh
-#   E2E_KEEP=1 bash tests/e2e.sh     # leave it running afterwards
+#   bash scripts/e2e.sh
+#   E2E_KEEP=1 bash scripts/e2e.sh     # leave it running afterwards
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -160,7 +163,7 @@ step "admin: setup and login"
 admin_setup
 ok "the first account made on the setup page; admin closed without it"
 
-step "games and joins (T1.1-53)"
+step "games and joins"
 game "Game A"; A_ID=$GAME_ID; A_CODE=$GAME_CODE
 game "Game B"; B_ID=$GAME_ID; B_CODE=$GAME_CODE
 ok "two games: A ($A_CODE), B ($B_CODE)"
@@ -184,7 +187,7 @@ curl -s "$C/g/game-a/" | has 'first blood' || fail "no first blood on board A"
 curl -s "$C/g/game-b/chart.svg" | has '<polyline' || fail "no chart on board B"
 ok "pages: score on the VM, first blood and chart on the board"
 
-step "no cookies (T1.1-54)"
+step "no cookies"
 kali_nojar 1 http://vm1/ctf/ | has "Anna" || fail "without cookies the page forgets the student"
 [ "$(kali_nojar 1 -o /dev/null -w '%{http_code}' 'http://vm1/juiceshop/rest/products/search?q=apple')" = 200 ] || fail "without cookies the shop is closed"
 ok "no cookie needed for the page or the shop"
@@ -237,7 +240,7 @@ wait_for 40 "VM 2 forgot by itself" shows 2 "Join the CTF"
 board_is game-a "Anna=200" || fail "clearing B touched A: $(board game-a)"
 ok "game A untouched"
 
-step "no false flags (T1.1-55)"
+step "no false flags"
 f="$(flags)"
 [ -z "$f" ] || fail "honest play raised flags: $f"
 ok "the feed holds no flag"

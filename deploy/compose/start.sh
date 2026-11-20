@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
 #
 # start.sh — start the test setup (docker-compose.yml next to this file):
 # the central server and three students' VMs, each with its Kali.

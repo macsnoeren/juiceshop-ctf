@@ -1,3 +1,5 @@
+{{/* SPDX-License-Identifier: GPL-3.0-or-later
+     Copyright (C) 2026 Maurice Snoeren */}}
 {{define "chart.svg"}}<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {{.W}} {{.H}}" role="img" aria-label="{{.Summary}}" font-family="Roboto, Noto Sans, Helvetica Neue, Segoe UI, Arial, sans-serif" font-size="12">
 <title>{{.Summary}}</title>
 <style>

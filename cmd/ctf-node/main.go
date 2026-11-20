@@ -1,5 +1,7 @@
-// Command ctf-node is the CTF half of the juiceshop-ctf container
-// (docs/VERSION-1-1.md §3.1, §4): the student's page, the proxy to Juice
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
+// Command ctf-node is the CTF half of the juiceshop-ctf container: the student's page, the proxy to Juice
 // Shop, the watcher and the reporter, in one binary that plays three parts:
 //
 //	ctf-node                  as root: the KEEPER (PID 1). Binds :80, starts
@@ -13,18 +15,18 @@
 //
 // No embedded tzdata: the Juice Shop image (distroless) has
 // /usr/share/zoneinfo, and leaving it out keeps the image within 20 MB of
-// Juice Shop's own (TASK-1-1 T1.1-38).
+// Juice Shop's own.
 //
 // Started as a normal user (outside the image, for development) it runs
 // -serve directly on CTF_ADDR, against a Juice Shop it does not supervise.
 //
 // Configuration is environment only, and NOTHING in it is a secret: the
 // image is the same for every student, and a VM's identity is made when the
-// student joins (VERSION-1-1.md §2.1).
+// student joins.
 //
 //	CTF_CENTRAL_URL     the central server, e.g. https://ctf.example.org;
 //	                    empty: none. The student page can change it before joining.
-//	CTF_GATE            "session" for the optional gate (§4.2); default: none
+//	CTF_GATE            "session" for the optional gate; default: none
 //	CTF_DATA_DIR        default /var/lib/ctf (node.db; 0700, uid 10001)
 //	CTF_ADDR            default :80
 //	CTF_TIMEZONE        default Europe/Amsterdam, for the times on the page
@@ -50,13 +52,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/macsnoeren/juiceshop-ctf/internal/config"
+	"github.com/macsnoeren/juiceshop-ctf/internal/health"
+	"github.com/macsnoeren/juiceshop-ctf/internal/httpx"
 	"github.com/macsnoeren/juiceshop-ctf/internal/juiceshop"
 	"github.com/macsnoeren/juiceshop-ctf/internal/node"
 	"github.com/macsnoeren/juiceshop-ctf/internal/node/keeper"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/config"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/health"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/version"
+	"github.com/macsnoeren/juiceshop-ctf/internal/version"
 )
 
 // webhookAddr is where Juice Shop's SOLUTIONS_WEBHOOK points: loopback, in
@@ -127,7 +129,7 @@ func runServe(ctx context.Context, stop func(), env *config.Env, addr string, lo
 	log = log.With("part", "node")
 	if underKeeper {
 		// The point of the keeper: this process, which talks to the
-		// network, holds no privilege at all (TASK-1-1 T1.1-31).
+		// network, holds no privilege at all.
 		caps, err := keeper.Capabilities()
 		if os.Getuid() == 0 || os.Geteuid() == 0 || err != nil || strings.Trim(caps, "0") != "" {
 			log.Error("REFUSING TO START: ctf-node must run as an unprivileged user with no capabilities", "uid", os.Getuid(), "caps", caps)

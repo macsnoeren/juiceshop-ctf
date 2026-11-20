@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package store
 
 import (
@@ -7,12 +10,12 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
 // The board of a game is computed from two queries — the game's participants
 // and their solves joined with the catalogue — and then in Go, so the rules
-// read as code rather than as SQL (VERSION-1-1.md §6):
+// read as code rather than as SQL:
 //
 //   - on the board: participants who have not left and are not hidden;
 //   - a solve scores when it was counted (received while the game accepted
@@ -22,7 +25,7 @@ import (
 //     ahead; equal score at the same moment is the same rank;
 //   - first blood of a challenge is the scoring solve RECEIVED first among
 //     those on the board. A VM cannot backdate it, and a later report never
-//     takes it away. It is a mark, worth no points (decision D10).
+//     takes it away. It is a mark, worth no points.
 
 type solveRow struct {
 	pid        int64
@@ -208,7 +211,7 @@ func (s *Store) StandingOf(g *Game, pid int64, now time.Time) (*protocol.Standin
 }
 
 // Initials turns "Zoë de Vries" into "Z.D.V.", for a game whose board shows
-// no names (VERSION-1-1.md §2, board options).
+// no names.
 func Initials(name string) string {
 	var b strings.Builder
 	for _, w := range strings.Fields(name) {

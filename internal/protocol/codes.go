@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package protocol
 
 import (
@@ -13,12 +16,12 @@ import (
 // JoinCodeAlphabet has no 0/o, 1/i/l: a code is read off a beamer and typed
 // by thirty students, and those are the characters people confuse. 31
 // characters, 10 of them: about 50 bits, far beyond guessing at the rate the
-// join endpoint allows (VERSION-1-1.md §5.6).
+// join endpoint allows.
 const (
 	JoinCodeAlphabet = "abcdefghjkmnpqrstuvwxyz23456789"
 	JoinCodeLength   = 10
 	// ReturnCodeLength is the personal code of the optional gate
-	// (CTF_GATE=session, VERSION-1-1.md §4.2): shorter, it guards one VM.
+	// (CTF_GATE=session): shorter, it guards one VM.
 	ReturnCodeLength = 8
 	TokenPrefix      = "ctfp_"
 )

@@ -1,4 +1,7 @@
-// The admin event feed reloads every 10 seconds (VERSION-1-1.md §5.4),
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
+// The admin event feed reloads every 10 seconds,
 // unless "pause refresh" is ticked — for reading a long line or selecting
 // text. The choice is remembered for this browser tab only.
 (function () {

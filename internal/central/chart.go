@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package central
 
 import (
@@ -11,7 +14,7 @@ import (
 	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
 )
 
-// The score-over-time chart (VERSION-1-1.md §6): one stepped line per top-10
+// The score-over-time chart: one stepped line per top-10
 // participant, labelled at its end with the name and score, so a line is
 // identified by its label and position and not by its colour alone.
 

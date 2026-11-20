@@ -1,8 +1,8 @@
-# The images need only go.mod, go.sum, cmd/, internal/ and web/ (see the COPY
+# The images need only go.mod, go.sum, LICENSE, cmd/, internal/ and web/ (see the COPY
 # lines in deploy/docker/Dockerfile.*). Everything else stays out of the build context.
 .git
 deploy
-tests
+scripts
 *.md
 *.db
 *.db-*

@@ -1,4 +1,7 @@
-# Juice Shop CTF 1.1, the test setup (docs/VERSION-1-1.md §7; TASK-1-1 T1.1-52):
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
+# Juice Shop CTF, the test setup:
 # the central server and three students' VMs, each with its "Kali".
 #
 #   ./start.sh            build, start, wait until healthy, print the addresses
@@ -32,7 +35,7 @@ name: juiceshop-ctf-lab
 x-vm: &vm
   image: juiceshop-ctf:latest
   pull_policy: never
-  # Exactly the run line of VERSION-1-1.md §3.1.
+  # The same run line as the VM's init script and scripts/image.sh.
   cap_drop: [ALL]
   cap_add: [SETUID, SETGID]
   security_opt: [no-new-privileges:true]

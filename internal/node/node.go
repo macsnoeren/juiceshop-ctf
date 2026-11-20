@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package node
 
 import (
@@ -14,8 +17,8 @@ import (
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/juiceshop"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/names"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/names"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
 // Shop is the part of the Juice Shop client the node uses; tests fake it.
@@ -35,11 +38,10 @@ type Keeper interface {
 // Config is the node's configuration (cmd/ctf-node).
 type Config struct {
 	// DefaultCentralURL is CTF_CENTRAL_URL: the image may carry one (the
-	// build arg CENTRAL_URL). The page can override it while not joined
-	// (T1.1-37a).
+	// build arg CENTRAL_URL). The page can override it while not joined.
 	DefaultCentralURL string
 	Version           string
-	// Gate is CTF_GATE=session (VERSION-1-1.md §4.2).
+	// Gate is CTF_GATE=session.
 	Gate bool
 
 	PollInterval   time.Duration
@@ -68,7 +70,7 @@ func (c *Config) defaults() {
 }
 
 // DefaultScoring is the local score's table when there is no central server
-// to say otherwise: 1.0's (DESIGN.md §8.3).
+// to say otherwise.
 var DefaultScoring = map[int]int{1: 100, 2: 250, 3: 450, 4: 700, 5: 1000, 6: 1350}
 
 // Node is one running ctf-node.
@@ -148,7 +150,7 @@ func (n *Node) save() {
 	}
 }
 
-// ---- the central server's address (T1.1-37a) ------------------------------
+// ---- the central server's address ------------------------------------------
 
 const settingCentral = "central_url"
 
@@ -156,7 +158,7 @@ const settingCentral = "central_url"
 const centralNone = "none"
 
 // CentralURL is the central server a NEW join goes to: the page's choice, or
-// the default; "" means none (central-less, VERSION-1-1.md §4.3).
+// the default; "" means none (central-less).
 func (n *Node) CentralURL() string {
 	v, err := n.db.Setting(settingCentral)
 	if err != nil {
@@ -233,7 +235,7 @@ type JoinResult struct {
 	ReturnCode string
 }
 
-// Join signs the student up (VERSION-1-1.md §2.2, §4.1): name and join code
+// Join signs the student up: name and join code
 // go to the central server, and its token is stored; the code is NOT kept,
 // unless the server cannot be reached, and then only in the outbox until it
 // can. Whatever Juice Shop has solved at the first join is the baseline.
@@ -345,7 +347,7 @@ func joinedMembership(jr *protocol.JoinResponse, uid string, joinedAt time.Time,
 		ParticipantID: jr.Participant, Token: jr.Token, Game: jr.Game, BoardURL: jr.Board}
 }
 
-// ---- Forget and Restart (VERSION-1-1.md §4.4) --------------------------------
+// ---- Forget and Restart --------------------------------------------------------
 
 // ErrForgetNoRestart is Forget that wiped node.db but could not restart Juice
 // Shop; the page says so.
@@ -355,7 +357,7 @@ var ErrForgetNoRestart = errors.New("everything about the student is deleted, bu
 // continue codes, baseline, outbox, standing, sessions — tells the central
 // server (when it can be reached; nothing waits for it) and restarts Juice
 // Shop with nothing to restore, so its database starts empty. The student's
-// button and the operator's forget command do exactly this (decision D3).
+// button and the operator's forget command do exactly this.
 func (n *Node) Forget(ctx context.Context, reason string) error {
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
@@ -501,7 +503,7 @@ func (n *Node) View() View {
 	return v
 }
 
-// ImportV1 imports a 1.0 state.json once (VERSION-1-1.md §8): saved first,
+// ImportV1 imports a 1.0 state.json once: saved first,
 // then the file is renamed, so a crash in between imports it again rather
 // than losing it.
 func (n *Node) ImportV1(path string) (int, error) {

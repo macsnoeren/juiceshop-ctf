@@ -1,12 +1,15 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 // Command ctf-central admits students into games, receives their VMs'
-// reports and serves the boards and the operator's admin
-// (docs/VERSION-1-1.md §2, §5, §6). See internal/central.
+// reports and serves the boards and the operator's admin. See
+// internal/central.
 //
 //	ctf-central                     serve
 //	ctf-central -healthcheck        check the running server, exit 0 or 1
 //	ctf-central -version
 //
-// The DATABASE LEADS (VERSION-1-1.md §5.1): games, join codes, scoring,
+// The DATABASE LEADS: games, join codes, scoring,
 // titles, the time zone and the event retention are made and changed in
 // /admin/ and live in the database. The environment says only where the
 // database is and where to listen — that is all it reads:
@@ -38,10 +41,10 @@ import (
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/central"
 	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/config"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/health"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/version"
+	"github.com/macsnoeren/juiceshop-ctf/internal/config"
+	"github.com/macsnoeren/juiceshop-ctf/internal/health"
+	"github.com/macsnoeren/juiceshop-ctf/internal/httpx"
+	"github.com/macsnoeren/juiceshop-ctf/internal/version"
 )
 
 func main() {

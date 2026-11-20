@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package store
 
 import (
@@ -6,7 +9,7 @@ import (
 	"time"
 )
 
-// The kinds of event in the feed (VERSION-1-1.md §5.4).
+// The kinds of event in the feed.
 const (
 	EvJoin        = "join"
 	EvJoinRefused = "join-refused"
@@ -118,7 +121,7 @@ func (s *Store) Events(f EventFilter) ([]Event, error) {
 	return out, rows.Err()
 }
 
-// Prune deletes what the retention says is old (VERSION-1-1.md §5.4): events,
+// Prune deletes what the retention says is old: events,
 // and commands confirmed — or never confirmed — before the cut-off. A forget
 // that a VM has not picked up within the retention never will be: that VM
 // is gone. It returns the number of events deleted.

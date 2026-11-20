@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package store
 
 import (
@@ -10,11 +13,11 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 	"golang.org/x/text/unicode/norm"
 )
 
-// Game is one CTF (VERSION-1-1.md §2): a group of students, a time window, a
+// Game is one CTF: a group of students, a time window, a
 // scoring table and a board.
 type Game struct {
 	ID            int64
@@ -72,7 +75,7 @@ func (g *Game) Protocol(now time.Time) protocol.Game {
 	return protocol.Game{ID: g.ID, Name: g.Name, Slug: g.Slug, State: g.EffectiveState(now), StartsAt: g.StartsAt, EndsAt: g.EndsAt}
 }
 
-// transitions are the allowed state changes (VERSION-1-1.md §2). A closed
+// transitions are the allowed state changes. A closed
 // game may be reopened: closing by mistake at the end of a lesson must not
 // be final. Back to draft is not allowed once students may have joined.
 var transitions = map[string][]string{
@@ -353,8 +356,7 @@ func (s *Store) Games(now time.Time) ([]GameSummary, error) {
 }
 
 // forgetAll queues a forget for every participant of a game that still has a
-// token, so each VM in it is told, even after its row is deleted
-// (VERSION-1-1.md §5.3). It returns how many were queued.
+// token, so each VM in it is told, even after its row is deleted. It returns how many were queued.
 func forgetAll(tx *sql.Tx, gameID int64, now time.Time) (int, error) {
 	rows, err := tx.Query(`SELECT id, token_hash FROM participants WHERE game_id = ? AND token_hash IS NOT NULL`, gameID)
 	if err != nil {

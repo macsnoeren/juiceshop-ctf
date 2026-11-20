@@ -1,4 +1,7 @@
-// The board, live: every 10 seconds from <game>/board.json (VERSION-1-1.md §6).
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
+// The board, live: every 10 seconds from <game>/board.json.
 //
 // The page is complete without this script; it only keeps it current. It
 // rebuilds the podium, the rows and the ticker, slides rows to their new

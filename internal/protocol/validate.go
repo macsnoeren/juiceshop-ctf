@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package protocol
 
 import (
@@ -6,7 +9,7 @@ import (
 	"math"
 	"regexp"
 
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/names"
+	"github.com/macsnoeren/juiceshop-ctf/internal/names"
 )
 
 // ErrInvalid wraps every validation failure. The message after it is safe to

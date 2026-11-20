@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package central
 
 import (
@@ -10,7 +13,7 @@ import (
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
 // The tests hash with far fewer iterations than production: the cost is not

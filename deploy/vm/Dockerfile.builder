@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
 # The VM builder: Packer and QEMU in a container, so building the CTF VM
 # needs nothing on the developer's machine but Docker (and /dev/kvm to be
 # fast). deploy/vm/build.sh builds and runs it; see deploy/vm/README.md.

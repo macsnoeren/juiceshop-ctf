@@ -1,4 +1,7 @@
-# ctf-central: games, joins, reports, the boards and admin (docs/VERSION-1-1.md §5, §6)
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
+# ctf-central: games, joins, reports, the boards and admin
 #
 # Build context is the REPOSITORY ROOT, not this directory:
 #
@@ -30,7 +33,7 @@ ARG VERSION=dev
 ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
-      -ldflags "-s -w -X github.com/macsnoeren/juiceshop-ctf/internal/shared/version.Version=${VERSION}" \
+      -ldflags "-s -w -X github.com/macsnoeren/juiceshop-ctf/internal/version.Version=${VERSION}" \
       -o /out/ctf-central ./cmd/ctf-central \
  && mkdir -p /out/rootfs/etc \
  && echo 'ctf:x:10001:10001:ctf:/nonexistent:/sbin/nologin' > /out/rootfs/etc/passwd \
@@ -38,6 +41,10 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
  && mkdir -p /out/rootfs/data
 
 FROM scratch
+# The licence text travels with the binary, as the GPL asks.
+LABEL org.opencontainers.image.licenses="GPL-3.0-or-later" \
+      org.opencontainers.image.source="https://github.com/macsnoeren/juiceshop-ctf"
+COPY LICENSE /usr/share/licenses/juiceshop-ctf/LICENSE
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/rootfs/etc/passwd /out/rootfs/etc/group /etc/
 # The state directory, owned by the runtime user. A named volume mounted here

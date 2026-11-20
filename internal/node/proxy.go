@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package node
 
 import (
@@ -12,8 +15,7 @@ import (
 	"strings"
 )
 
-// The reverse proxy to Juice Shop (VERSION-1-1.md §3.1), where 1.0 had
-// nginx (docker/nginx/ctf-instance.conf, DESIGN.md §6.2):
+// The reverse proxy to Juice Shop:
 //
 //	/juiceshop/…  → 127.0.0.1:3000/…   the prefix stripped on the way in, and
 //	                                   put back on any redirect that lacks it

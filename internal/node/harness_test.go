@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package node
 
 import (
@@ -22,7 +25,7 @@ import (
 	"github.com/macsnoeren/juiceshop-ctf/internal/central"
 	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
 	"github.com/macsnoeren/juiceshop-ctf/internal/juiceshop"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
 func strp(s string) *string { return &s }

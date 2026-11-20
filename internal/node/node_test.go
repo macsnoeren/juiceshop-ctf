@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package node
 
 import (
@@ -14,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
-// ---- T1.1-28, -29: node.db ----------------------------------------------------
+// ---- node.db ------------------------------------------------------------------
 
 func TestNodeDBModesAndMigrations(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "ctf")
@@ -84,7 +87,7 @@ func TestImportV1(t *testing.T) {
 	}
 }
 
-// ---- T1.1-33: 1.0's watcher tests, on node.db --------------------------------
+// ---- the watcher ----------------------------------------------------------------
 
 func TestRestoreAfterJuiceShopRestart(t *testing.T) {
 	h := newHarness(t, Config{})
@@ -203,7 +206,7 @@ func TestWebhook(t *testing.T) {
 	}
 }
 
-// ---- T1.1-34..37a: joining and reporting --------------------------------------
+// ---- joining and reporting --------------------------------------------------
 
 func TestJoinKeepsTheTokenNotTheCode(t *testing.T) {
 	c := newCentral(t)
@@ -466,7 +469,7 @@ func TestAsksForCentral(t *testing.T) {
 	}
 }
 
-// ---- T1.1-40..43: the page ----------------------------------------------------
+// ---- the page ----------------------------------------------------------------
 
 func TestPageWithoutCookiesIsTheSame(t *testing.T) {
 	c := newCentral(t)

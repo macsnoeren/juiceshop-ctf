@@ -1,5 +1,8 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 // Package protocol is the language between ctf-node and ctf-central, version
-// 2 (docs/VERSION-1-1.md §2.2; docs/PROTOCOL.md is the reference).
+// 2 (docs/PROTOCOL.md is the reference).
 //
 // It is the ONE place this format is defined. Both programs compile against
 // it, so they cannot disagree about a field name.
@@ -37,7 +40,7 @@ const (
 	MaxCommandsApplied = 100
 )
 
-// The states of a game (VERSION-1-1.md §2). StateLeft is never a game's state:
+// The states of a game. StateLeft is never a game's state:
 // it is what a report answer says to a participant who is no longer in the
 // game, so the node can show that.
 const (
@@ -48,8 +51,8 @@ const (
 	StateLeft    = "left"
 )
 
-// CmdForget tells the node to do what the student's own Forget button does
-// (VERSION-1-1.md §4.4): leave, wipe node.db, restart Juice Shop empty.
+// CmdForget tells the node to do what the student's own Forget button does:
+// leave, wipe node.db, restart Juice Shop empty.
 const CmdForget = "forget"
 
 // The reasons of a leave.
@@ -74,7 +77,7 @@ type JoinRequest struct {
 	Name     string `json:"name"`
 	Code     string `json:"code"`
 	// JoinedAt is when the student pressed join. For a join that waited in
-	// the node's outbox (VERSION-1-1.md §4.3) it is earlier than the moment
+	// the node's outbox it is earlier than the moment
 	// the central server receives it, and the solves made in between are
 	// already the student's.
 	JoinedAt *time.Time `json:"joined_at,omitempty"`
@@ -121,7 +124,7 @@ type Report struct {
 	SentAt   time.Time `json:"sent_at"`
 	// Boot identifies the running Juice Shop (its start time). A restart
 	// gives a new one that never comes back; one token reporting two boots in
-	// alternation is a copied VM (VERSION-1-1.md §5.5).
+	// alternation is a copied VM.
 	Boot            string   `json:"boot"`
 	Node            Node     `json:"node"`
 	Reachable       bool     `json:"juiceshop_reachable"`

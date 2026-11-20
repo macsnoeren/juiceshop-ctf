@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package juiceshop
 
 import (
@@ -61,7 +64,7 @@ func Lookup(key string) (Challenge, bool) {
 
 // Prerequisites maps a challenge to one that Juice Shop ALWAYS solves first
 // or at the same moment, so a report with the first and without the second
-// is not something Juice Shop produced (VERSION-1-1.md §5.5).
+// is not something Juice Shop produced.
 //
 // Kept to what Juice Shop's code guarantees, not to what is merely the usual
 // order: a student told the URL by a classmate skips the "usual" step

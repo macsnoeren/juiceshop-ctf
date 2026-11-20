@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
 # package.sh: the one disk Packer made (QEMU, qcow2) as the two things a
 # student imports. Runs in the builder container, from deploy/vm/build.sh.
 #

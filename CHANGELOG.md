@@ -1,12 +1,20 @@
 # Changelog
 
+## Unreleased
+
+**Repository**
+- Licensed under the GNU General Public License v3.0 or later (`LICENSE`):
+  every source file says so in an SPDX header, both images carry the licence
+  text and the OCI licence label, and the release notes link the source.
+- `internal/shared/*` moved up to `internal/*`; the test scripts are all in
+  `scripts/`; the students' sheet is `docs/STUDENT.md`.
+- The planning documents (`DESIGN.md`, `VERSION-1-1.md`, `TASK-1-1.md`) are
+  gone, and so are the references to them in the code.
+- `CLAUDE.md` describes the layout and the rules that keep it.
+
 ## 1.1.0
 
-What the first student lab asked for; the reasoning is in
-[docs/VERSION-1-1.md](docs/VERSION-1-1.md), the steps in
-[docs/TASK-1-1.md](docs/TASK-1-1.md).
-
-The answer to the first student lab (F1–F11 in VERSION-1-1.md §1).
+The answer to the first student lab.
 
 **The central server leads**
 - Games, made in admin, each with a join code (shown once, stored hashed), a
@@ -14,14 +22,14 @@ The answer to the first student lab (F1–F11 in VERSION-1-1.md §1).
   scoring and board options (hidden, initials). Any number at the same time.
 - A token per participant, issued when the student joins. A report touches
   only its own participant: thirty VMs from one image no longer push each
-  other off the board (F1, F6).
+  other off the board.
 - Admin: the game page with every participant's state, version, cheat score
   and flags; remove, hide, end, clear and delete, confirmed by typing the
-  game's name; the event feed with filters and CSV (F3, F4, F5).
+  game's name; the event feed with filters and CSV.
 - Flags for what an honest VM never sends: a missing prerequisite, a burst,
   solves before the join or after the end, two Juice Shop boots on one
   token, a high cheat score. Shown, never acted on.
-- Everything in SQLite; `CTF_SEED`, `CTF_TITLE`, `CTF_TIMEZONE` gone (F9). The
+- Everything in SQLite; `CTF_SEED`, `CTF_TITLE`, `CTF_TIMEZONE` gone. The
   1.0 database migrates: every student of the lab is back, in a closed game "1.0".
 - The challenge catalogue is embedded: a report says which challenges, never
   what they are worth.
@@ -33,12 +41,12 @@ The answer to the first student lab (F1–F11 in VERSION-1-1.md §1).
   capabilities, Juice Shop as 65532, and code in Juice Shop cannot read the
   token or signal ctf-node.
 - ctf-node replaces ctf-agent and ctf-status: no gate (the lab network keeps
-  others out, nothing depends on a cookie, F2); `CTF_GATE=session` with a
+  others out, nothing depends on a cookie); `CTF_GATE=session` with a
   personal return code where a VM is reachable by others.
 - Join online, queued while the central server is unreachable, or with no
   central server at all; the central server can be changed on the page
-  before joining (F10), and a VM built without one asks *Which central
-  server?* before the join form. Everything remembered in `node.db` (F11).
+  before joining, and a VM built without one asks *Which central
+  server?* before the join form. Everything remembered in `node.db`.
 - *Restart Juice Shop* and *Forget* on the student's page; the operator's
   *remove* does what *Forget* does.
 
@@ -68,14 +76,14 @@ The answer to the first student lab (F1–F11 in VERSION-1-1.md §1).
   (`X.Y.Z`, `X.Y`, `latest`; amd64 and arm64), and the VM for VirtualBox and
   VMware on the GitHub release, all carrying the tag as their version.
 
-**The board** (F8)
+**The board**
 - Per game at `/g/<slug>/`: podium, category bars, live ticker with first
   blood (a mark, no points; by time of receipt), score over time, pages per
   participant, challenge and category; beamer mode with countdown and final
   result.
 
-**Repository** (F7)
-- The layout of VERSION-1-1.md §7, a Makefile, versions from `git describe`,
+**Repository**
+- A new repository layout, a Makefile, versions from `git describe`,
   the test setup as three VMs with their Kalis, `tests/e2e.sh` and
   `tests/image.sh`, OPERATIONS.md, PROTOCOL.md and the student sheet.
 

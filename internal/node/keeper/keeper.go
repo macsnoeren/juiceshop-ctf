@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package keeper
 
 import (
@@ -14,7 +17,7 @@ import (
 	"time"
 )
 
-// The users inside the container (VERSION-1-1.md §3.1). 65532 is Juice
+// The users inside the container. 65532 is Juice
 // Shop's own (the distroless "nonroot"), and owns its files in the image;
 // 10001 owns /var/lib/ctf, mode 0700.
 const (
@@ -40,7 +43,7 @@ type Config struct {
 // the control pipe, and on SIGTERM stop ctf-node and then Juice Shop. It
 // returns the exit code. It refuses to run as anything but root, and fails
 // loudly when it cannot start ctf-node as 10001 (no SETUID/SETGID): a
-// ctf-node that kept root would defeat the point (TASK-1-1 T1.1-31).
+// ctf-node that kept root would defeat the point.
 func Run(ctx context.Context, cfg Config) int {
 	log := cfg.Log
 	if os.Getuid() != 0 {

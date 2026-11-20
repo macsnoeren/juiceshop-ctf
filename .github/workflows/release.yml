@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
 # release: one version of Juice Shop CTF, everywhere at once.
 #
 #   git tag v1.1.0 && git push origin v1.1.0         (or: Actions → release → Run, version v1.1.0)
@@ -12,7 +15,7 @@
 #   publish   the draft release made public — only when docker AND vm succeeded
 #
 # ONE VERSION STRING, from the tag: the binaries print it (VERSION build arg →
-# internal/shared/version), the VM carries it in its file names and on its
+# internal/version), the VM carries it in its file names and on its
 # console, admin shows it per VM, and Docker Hub gets it without the "v".
 # A pre-release (v1.2.0-rc.1) is marked so on GitHub, and Docker Hub gets
 # only its full version, never "latest" or "1.2".
@@ -101,13 +104,15 @@ jobs:
 
           ${central}
 
-          The students' sheet: [deploy/vm/STUDENT.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/deploy/vm/STUDENT.md).
+          The students' sheet: [docs/STUDENT.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/STUDENT.md).
 
           The central server:
 
           \`\`\`sh
           docker pull ${NAMESPACE}/${CENTRAL_IMAGE}:${docker_version}
           \`\`\`
+
+          Licensed under the [GNU GPL v3.0 or later](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/LICENSE). The source of this release is the tag [\`${TAG}\`](https://github.com/${GITHUB_REPOSITORY}/tree/${TAG}) (the *Source code* archives below).
           EOF
           {
             echo "tag=$TAG"
@@ -165,9 +170,9 @@ jobs:
       - name: Unit tests (gofmt, vet, -race)
         run: bash scripts/test.sh
       - name: The image on its own
-        run: bash tests/image.sh
+        run: bash scripts/image.sh
       - name: End to end
-        run: bash tests/e2e.sh
+        run: bash scripts/e2e.sh
 
   docker:
     needs: [prepare, test]

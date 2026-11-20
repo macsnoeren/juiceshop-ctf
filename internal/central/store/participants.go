@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package store
 
 import (
@@ -6,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
 // onlineWindow is how recent a report must be for "online": three missed
@@ -104,8 +107,7 @@ type JoinResult struct {
 	Game        *Game
 }
 
-// Join admits a student into the game their code belongs to (VERSION-1-1.md
-// §2.2). The request must be normalised (protocol.JoinRequest.Normalize).
+// Join admits a student into the game their code belongs to. The request must be normalised (protocol.JoinRequest.Normalize).
 // The token is returned ONCE; only its hash is stored. On a refusal the
 // returned game, when not nil, is the one the code belongs to, for the event.
 func (s *Store) Join(req *protocol.JoinRequest, now time.Time) (*JoinResult, *Game, error) {
@@ -128,7 +130,7 @@ func (s *Store) Join(req *protocol.JoinRequest, now time.Time) (*JoinResult, *Ga
 		return nil, g, ErrGameClosed
 	}
 	// The node's own join time, never later than now: an offline join that
-	// waited in the outbox is older than its arrival (§4.3).
+	// waited in the outbox is older than its arrival.
 	var nodeJoined *time.Time
 	if req.JoinedAt != nil {
 		t := *req.JoinedAt
@@ -169,7 +171,7 @@ func (s *Store) SetHidden(id int64, hidden bool) error {
 }
 
 // Remove takes a participant off the game and the board, stops their token,
-// and tells their VM forget (VERSION-1-1.md §5.3). The row and the solves
+// and tells their VM forget. The row and the solves
 // stay, for the operator; Delete removes them.
 func (s *Store) Remove(id int64, now time.Time) error {
 	tx, err := s.db.Begin()
@@ -241,7 +243,7 @@ const (
 	LeaveConfirmed                     // a removed or cleared participant's VM confirmed the forget
 )
 
-// Leave is POST /api/v2/leave (VERSION-1-1.md §4.4): the participant is
+// Leave is POST /api/v2/leave: the participant is
 // marked left and taken off the board, the token stops working, and any
 // forget waiting for that token is confirmed. The solves stay.
 func (s *Store) Leave(tokenHash, reason string, now time.Time, addr string) (LeaveOutcome, *Participant, error) {

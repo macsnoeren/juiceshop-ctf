@@ -1,5 +1,8 @@
-// Package keeper is the root part of the juiceshop-ctf container
-// (docs/VERSION-1-1.md §3.1): PID 1, and nothing but a supervisor.
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
+// Package keeper is the root part of the juiceshop-ctf container: PID 1, and
+// nothing but a supervisor.
 //
 //	keeper (uid 0, caps SETUID+SETGID only)
 //	  ├─ Juice Shop   node build/app.js        uid 65532, no caps
@@ -42,7 +45,7 @@ type Process interface {
 // Launcher starts the supervised program.
 type Launcher func() (Process, error)
 
-// Supervisor keeps one program running (TASK-1-1 T1.1-30).
+// Supervisor keeps one program running.
 type Supervisor struct {
 	Launch Launcher
 	Log    *slog.Logger

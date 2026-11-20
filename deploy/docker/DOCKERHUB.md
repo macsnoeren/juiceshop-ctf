@@ -44,8 +44,14 @@ students' real addresses.
 
 ## The image
 
-- `FROM scratch`: one static Go binary, CA certificates, nothing else; runs
-  as uid 10001. `linux/amd64` and `linux/arm64`.
+- `FROM scratch`: one static Go binary, CA certificates and the licence text
+  (`/usr/share/licenses/juiceshop-ctf/LICENSE`), nothing else; runs as uid
+  10001. `linux/amd64` and `linux/arm64`.
 - `HEALTHCHECK` built in (`/ctf-central -healthcheck`).
 - Tags: `latest`, `MAJOR.MINOR` and `MAJOR.MINOR.PATCH`, from the project's
   release tags. `/ctf-central -version` prints the version it was built from.
+
+## License
+
+GNU General Public License v3.0 or later. Source:
+[github.com/macsnoeren/juiceshop-ctf](https://github.com/macsnoeren/juiceshop-ctf).

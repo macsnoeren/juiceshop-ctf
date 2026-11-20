@@ -21,6 +21,6 @@ Then:
 3. Solve something in its Juice Shop — `http://127.0.0.1:8091/juiceshop/ftp/acquisitions.md`
    is one — and watch the game's board.
 
-`tests/e2e.sh` runs this setup under its own project name and ports and
-checks every behaviour of 1.1 end to end; `tests/image.sh` checks the image
+`scripts/e2e.sh` runs this setup under its own project name and ports and
+checks every behaviour of 1.1 end to end; `scripts/image.sh` checks the image
 on its own.

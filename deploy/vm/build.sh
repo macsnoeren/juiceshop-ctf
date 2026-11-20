@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
 # build.sh: the CTF VM for VirtualBox and VMware, built in Docker. Nothing
 # to install but Docker; /dev/kvm makes it fast (about six minutes), without
 # it QEMU emulates (an hour or more). See deploy/vm/README.md.

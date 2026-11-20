@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package store
 
 // migrations are applied in order, each once, with foreign keys switched off
@@ -6,7 +9,7 @@ package store
 // would never run on a database that already has it — and migration 1 is in
 // every central.db the 1.0 lab left behind.
 var migrations = []string{
-	// 1 — version 1.0 (DESIGN.md §8), exactly as it was released.
+	// 1 — version 1.0, exactly as it was released.
 	`CREATE TABLE instances (
 		id                TEXT PRIMARY KEY,
 		label             TEXT NOT NULL DEFAULT '',
@@ -58,12 +61,12 @@ var migrations = []string{
 	INSERT INTO scoring (difficulty, points) VALUES (1,100),(2,250),(3,450),(4,700),(5,1000),(6,1350);`,
 
 	// 2 — version 1.1: games, a token per participant, commands per
-	// participant (VERSION-1-1.md §5.1, §8).
+	// participant.
 	//
 	// Every 1.0 participant moves into ONE closed game "1.0", and ended_at
 	// is NOT carried over: in the lab, 1.0's rule "a new registration ends
 	// the previous participant of the instance" ended every student but the
-	// last (VERSION-1-1.md §1.1), so ended_at says nothing about the
+	// last, so ended_at says nothing about the
 	// student. Clearing it puts the whole lab back on the "1.0" board. Ids
 	// are kept, so the solves keep pointing at their participant.
 	//
@@ -165,7 +168,7 @@ var migrations = []string{
 		PRIMARY KEY (participant_id, boot)
 	);`,
 
-	// 3 — the event feed, settings and flags (VERSION-1-1.md §5.4, §5.5).
+	// 3 — the event feed, settings and flags.
 	// events has no foreign keys on purpose: what happened in a game stays in
 	// the feed after the game is deleted, until the retention removes it.
 	`CREATE TABLE events (

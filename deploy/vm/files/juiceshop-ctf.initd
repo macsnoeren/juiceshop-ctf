@@ -1,7 +1,9 @@
 #!/sbin/openrc-run
-# The Juice Shop CTF on the VM: the juiceshop-ctf container, run exactly as
-# docs/VERSION-1-1.md §3.1 says (README.md "The image runs anywhere Docker
-# does"). Installed by deploy/vm/provision.sh.
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
+# The Juice Shop CTF on the VM: the juiceshop-ctf container. Installed by
+# deploy/vm/provision.sh.
 #
 # The container is CREATED here, at the first start on the student's
 # machine, not while building the VM: the image is the same for everybody,

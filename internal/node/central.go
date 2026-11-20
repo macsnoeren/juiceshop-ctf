@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package node
 
 import (
@@ -13,10 +16,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
-// The three requests of protocol v2 (VERSION-1-1.md §2.2), and the loops
+// The three requests of protocol v2, and the loops
 // that send them: the joiner empties the outbox, the reporter sends the
 // snapshot within a couple of seconds of a change and every ReportInterval.
 
@@ -109,7 +112,7 @@ func backoff(failures int, base, max time.Duration) time.Duration {
 	return d + time.Duration((rand.Float64()*0.4-0.2)*float64(d))
 }
 
-// TryOutbox sends a queued join if it is due (VERSION-1-1.md §4.3).
+// TryOutbox sends a queued join if it is due.
 func (n *Node) TryOutbox(ctx context.Context) {
 	n.mu.Lock()
 	o, m := n.st.Outbox, n.st.Membership
@@ -165,7 +168,7 @@ func (n *Node) RunJoiner(ctx context.Context) {
 	}
 }
 
-// BuildReport is the snapshot of §2.2. ok is false when there is nothing to
+// BuildReport is the report snapshot. ok is false when there is nothing to
 // report to (not joined).
 func (n *Node) BuildReport() (protocol.Report, string, string, bool) {
 	n.mu.Lock()

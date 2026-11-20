@@ -10,6 +10,5 @@ state.json*
 # (it is a regression test), never by accident.
 internal/*/testdata/fuzz/
 
-# Real secrets never live in this repository. The files under docker/env/ are
-# SAMPLE values for the test setup and are committed on purpose.
+# Real secrets never live in this repository.
 *.local.env

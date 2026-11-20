@@ -1,6 +1,8 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 // Package central is ctf-central: it admits students into games, receives
-// their VMs' reports, and serves the boards and the operator's admin
-// (docs/VERSION-1-1.md §2, §5, §6).
+// their VMs' reports, and serves the boards and the operator's admin.
 //
 // Everything is under BasePath ("" on its own hostname, e.g. /juiceshop-ctf
 // on a path of a shared one):
@@ -33,8 +35,8 @@ import (
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/httpx"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 	centralweb "github.com/macsnoeren/juiceshop-ctf/web/central"
 	"github.com/macsnoeren/juiceshop-ctf/web/static"
 )
@@ -59,7 +61,7 @@ type Server struct {
 	loginFails *window // failed admin logins per address and per username
 }
 
-// The join limits (VERSION-1-1.md §5.6). Never per address alone: a school
+// The join limits. Never per address alone: a school
 // puts a whole room behind one address, and thirty students join in the same
 // minute. A correct code never uses up the wrong-code budget.
 const (
@@ -183,7 +185,7 @@ func (s *Server) boardURL(r *http.Request, slug string) string {
 	return scheme + "://" + r.Host + s.cfg.BasePath + "/g/" + slug + "/"
 }
 
-// handleJoin is POST /api/v2/join (VERSION-1-1.md §2.2).
+// handleJoin is POST /api/v2/join.
 func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 	now := s.now()
 	addr := httpx.ClientIP(r)
@@ -310,7 +312,7 @@ func (s *Server) handleLeave(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleLegacy answers a 1.0 agent: its protocol is gone, and the operator
-// should see which address still runs one (TASK-1-1 T1.1-19).
+// should see which address still runs one.
 func (s *Server) handleLegacy(w http.ResponseWriter, r *http.Request) {
 	var v1 struct {
 		Instance     string `json:"instance"`

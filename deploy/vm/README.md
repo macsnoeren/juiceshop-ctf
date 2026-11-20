@@ -1,7 +1,7 @@
 # The CTF VM
 
 How the VM that every student imports next to Kali is made
-(docs/VERSION-1-1.md §3, §4; the student's side is [STUDENT.md](STUDENT.md)).
+(the student's side is [docs/STUDENT.md](../../docs/STUDENT.md)).
 It was made for the Minor Cybersecurity *Weerbaar tegen cybercrime* of Avans
 University of Applied Sciences, where every student already has a
 VirtualBox lab with Kali on a host-only network.

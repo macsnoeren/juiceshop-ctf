@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
 # The Packer version and plugin the VM build needs. Kept in a file of its own
 # so Dockerfile.builder can install the plugin into the builder image; the
 # same block is in juiceshop-ctf.pkr.hcl and the two must say the same.

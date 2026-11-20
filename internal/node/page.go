@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package node
 
 import (
@@ -8,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/httpx"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/names"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/httpx"
+	"github.com/macsnoeren/juiceshop-ctf/internal/names"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 	nodeweb "github.com/macsnoeren/juiceshop-ctf/web/node"
 	"github.com/macsnoeren/juiceshop-ctf/web/static"
 )
 
-// The web server of the VM (VERSION-1-1.md §4.2, §4.4): the student's page,
+// The web server of the VM: the student's page,
 // and the shop behind it.
 //
 //	GET  /                 → /ctf/

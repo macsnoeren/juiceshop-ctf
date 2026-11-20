@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package store
 
 import (
@@ -9,16 +12,16 @@ import (
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/juiceshop"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 )
 
 // MaxFuture is how far past the moment a report was sent (or received,
 // whichever is earlier) a solve time may lie before it is clamped to the time
-// of receipt (DESIGN.md §8.2).
+// of receipt.
 const MaxFuture = 5 * time.Minute
 
 // reportEventEvery collapses the "report" events: one per participant per
-// minute, unless something changed (VERSION-1-1.md §5.4).
+// minute, unless something changed.
 const reportEventEvery = time.Minute
 
 // ReportOutcome says how a report was taken.
@@ -38,11 +41,11 @@ type ReportResult struct {
 }
 
 // Report folds one report into the database, in one transaction, and returns
-// the answer for the node (VERSION-1-1.md §2.2, §5.1).
+// the answer for the node.
 //
-// The rules, each held in place by a test in report_test.go:
+// The rules, each held in place by a test in store_test.go:
 //   - a report is about ONE participant, found by the token's hash; NOTHING
-//     in it ends, moves or touches another participant (the lab's F1);
+//     in it ends, moves or touches another participant;
 //   - the first recorded solve time wins and a report never removes a solve:
 //     a Juice Shop that lost its progress does not cost the student their
 //     score;
@@ -237,7 +240,7 @@ func (s *Store) Report(tokenHash string, r *protocol.Report, now time.Time, addr
 	return resp, ReportResult{Outcome: ReportMerged, Participant: p, NewSolves: len(fresh)}, nil
 }
 
-// The flags (VERSION-1-1.md §5.5): things an honest node never sends. They
+// The flags: things an honest node never sends. They
 // are raised as events and shown next to the participant, NEVER acted on.
 const (
 	FlagPrerequisite = "prerequisite"

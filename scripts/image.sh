@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# image.sh: the juiceshop-ctf image on its own, checked from outside
-# (TASK-1-1 T1.1-31, T1.1-38, T1.1-39; docs/VERSION-1-1.md §3.1).
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
+# image.sh: the juiceshop-ctf image on its own, checked from outside.
 #
-#   run         `docker run` exactly as §3.1 says; /ctf/ and /juiceshop/ answer
+#   run         `docker run` as the VM does; /ctf/ and /juiceshop/ answer
 #   size        the image is Juice Shop's plus less than 20 MB
 #   users       keeper uid 0, ctf-node uid 10001 with NO capabilities, Juice
 #               Shop uid 65532
@@ -16,7 +18,7 @@
 #
 # Needs docker and python3; builds the image first. About two minutes.
 #
-#   bash tests/image.sh
+#   bash scripts/image.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -69,7 +71,7 @@ docker build -q -f deploy/docker/Dockerfile.node --build-arg VERSION="$(git desc
 docker rm -f "$C" >/dev/null 2>&1 || true
 docker network create "$NET" >/dev/null
 
-step "run (as VERSION-1-1.md §3.1, without a central server)"
+step "run (as on the VM, without a central server)"
 docker run -d --name "$C" --network "$NET" -p "127.0.0.1:$PORT:80" -v "$C:/var/lib/ctf" \
     -e CTF_CENTRAL_URL= -e POLL_INTERVAL=5s \
     --cap-drop ALL --cap-add SETUID --cap-add SETGID --security-opt no-new-privileges "$IMG" >/dev/null
@@ -93,7 +95,7 @@ print("   %s + %.2f MB" % (sys.argv[2], (a - b) / 1e6))
 sys.exit(0 if a - b < 20e6 else 1)
 EOF
 
-step "users (T1.1-31)"
+step "users"
 procs="$(as 65532 '
 const fs = require("fs");
 for (const p of fs.readdirSync("/proc").filter(d => /^\d+$/.test(d))) {
@@ -118,7 +120,7 @@ csrf="$(curl -s -c "$JAR" -b "$JAR" "$B/ctf/" | sed -n 's/.*name="csrf" value="\
 [ "$(status "$B/juiceshop/ftp/acquisitions.md")" = 200 ] || fail "solving"
 wait_for 20 "the page shows the solve" page_has '<span class="num">100</span>'
 
-step "isolation (T1.1-39)"
+step "isolation"
 result="$(as 65532 "
 const fs = require('fs'), net = require('net');
 const r = {};

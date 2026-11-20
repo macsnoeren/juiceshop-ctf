@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package central
 
 import (
@@ -19,7 +22,7 @@ import (
 	"time"
 
 	"github.com/macsnoeren/juiceshop-ctf/internal/central/store"
-	"github.com/macsnoeren/juiceshop-ctf/internal/shared/protocol"
+	"github.com/macsnoeren/juiceshop-ctf/internal/protocol"
 	"github.com/macsnoeren/juiceshop-ctf/web/static"
 )
 
@@ -180,7 +183,7 @@ func (e *env) events(kind string) []store.Event {
 	return evs
 }
 
-// ---- T1.1-14, -15, -19: the API ------------------------------------------
+// ---- the API ------------------------------------------------------------
 
 func TestJoinAnswers(t *testing.T) {
 	e := newEnv(t)
@@ -253,7 +256,7 @@ func TestLegacyReportIsGone(t *testing.T) {
 	}
 }
 
-// ---- T1.1-24..27: admin ----------------------------------------------------
+// ---- admin ----------------------------------------------------------------
 
 func TestJoinCodeIsShownOnce(t *testing.T) {
 	e := newEnv(t)
@@ -407,7 +410,7 @@ func TestEventFeed(t *testing.T) {
 	}
 }
 
-// ---- T1.1-44..51: the boards -------------------------------------------------
+// ---- the boards -------------------------------------------------------------
 
 // seed builds the golden game: four participants with solves at fixed times,
 // one of them hidden.

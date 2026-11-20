@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Maurice Snoeren
+
 # The CTF VM: Alpine Linux with Docker and the juiceshop-ctf image, installed
 # unattended under QEMU. Run through deploy/vm/build.sh, never by hand: it
 # makes the image tar, the build's SSH key and the HTTP directory this file

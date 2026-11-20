@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package protocol
 
 import (
@@ -11,7 +14,7 @@ import (
 	"time"
 )
 
-// The examples of VERSION-1-1.md §2.2 and docs/PROTOCOL.md, as the programs
+// The examples of docs/PROTOCOL.md, as the programs
 // write them. If one of these stops round-tripping, a field was renamed, and
 // every VM in the field still sends the old name.
 var examples = map[string]struct {

@@ -1,4 +1,7 @@
-// Package store is ctf-central's SQLite database (VERSION-1-1.md §5): the
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
+// Package store is ctf-central's SQLite database: the
 // games, their participants and solves, the commands for the VMs, the event
 // feed and the flags. It LEADS: everything the operator configures is in
 // here and changed through /admin/, nothing comes from the environment.
@@ -55,7 +58,7 @@ var (
 	ErrConflict = errors.New("not allowed in this state")
 )
 
-// DefaultScoring is points per difficulty, 1.0's table (DESIGN.md §8.3).
+// DefaultScoring is points per difficulty.
 var DefaultScoring = map[int]int{1: 100, 2: 250, 3: 450, 4: 700, 5: 1000, 6: 1350}
 
 // Store is the database.

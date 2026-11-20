@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Maurice Snoeren
+
 package juiceshop
 
 import (
@@ -183,8 +186,8 @@ func TestErrors(t *testing.T) {
 }
 
 func TestWebhookFixtureShape(t *testing.T) {
-	// The agent only reads solution.challenge and solution.cheatScore from the
-	// webhook (DESIGN.md §6.1); make sure the captured body has them.
+	// The watcher only reads solution.challenge and solution.cheatScore from the
+	// webhook; make sure the captured body has them.
 	b := string(fixture(t, "webhook.json"))
 	for _, want := range []string{`"challenge":"exposedMetricsChallenge"`, `"cheatScore":`} {
 		if !strings.Contains(b, want) {
