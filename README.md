@@ -1,4 +1,5 @@
 [![release](https://github.com/macsnoeren/juiceshop-ctf/actions/workflows/release.yml/badge.svg)](https://github.com/macsnoeren/juiceshop-ctf/actions/workflows/release.yml)
+[![Dependabot Updates](https://github.com/macsnoeren/juiceshop-ctf/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/macsnoeren/juiceshop-ctf/actions/workflows/dependabot/dependabot-updates)
 
 # Juice Shop CTF
 
